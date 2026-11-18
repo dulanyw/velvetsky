@@ -88,7 +88,11 @@ float cumulusField(vec3 p){
  float bank=max(max(bottom-original.y,original.y-top),(weather-mix(-.3,1.1,joining))*2200.);
  if(cover>.55)field=mergeCloud(field,bank,180.);
  // Small boundary erosion reveals billows without dissolving the silhouette.
- if(field<180.)field+=(volumeNoise(p*.006)-.5)*125.+(volumeNoise(p.yzx*.017+vec3(17,53,29))-.5)*40.+(volumeNoise(p.zxy*.038+vec3(71,11,43))-.5)*12.;
+ if(field<180.){
+ field+=(volumeNoise(p*.006)-.5)*125.+(volumeNoise(p.yzx*.017+vec3(17,53,29))-.5)*40.+(volumeNoise(p.zxy*.038+vec3(71,11,43))-.5)*12.;
+ float closeDetail=1.-smoothstep(700.,4500.,length(p-vec3(0,altitude,travel)));
+ if(closeDetail>.001)field+=closeDetail*((volumeNoise(p.yzx*.081+vec3(31,67,19))-.5)*7.+(volumeNoise(p.zxy*.17+vec3(43,13,71))-.5)*2.5);
+ }
  return field;
 }
 // Tall convective volumes with a common low base, rising lobes, and a wind-spread
@@ -131,8 +135,13 @@ float cloudField(vec3 p){
  return cumulusField(p);
 #endif
 }
+// Keep a thin resolved boundary nearby; widen only with the projected pixel size.
+// A fixed world-space feather otherwise occupies many pixels close to the cloud,
+// creating an unintended depth-of-field / miniature appearance.
+float cloudEdgeWidth(vec3 p){float distance=length(p-vec3(0,altitude,travel));return max(mix(2.5,18.,smoothstep(200.,4500.,distance)),distance*.0012);}
+float shapedDensity(vec3 p,float field){float width=cloudEdgeWidth(p);return 1.-smoothstep(-width*1.8,width,field);}
 float density(vec3 p){
- if(cloudType<.5||cloudType>2.5)return (1.-smoothstep(-45.,18.,cloudField(p)));
+ if(cloudType<.5||cloudType>2.5)return shapedDensity(p,cloudField(p));
  vec2 q=p.xz*.0007;float base=fbm(q*.43);float shape=volumeNoise(p*.0012)*.7+volumeNoise(p*.003)*.2+volumeNoise(p*.008)*.1;
  float bottom=1400.+base*350.;float height=cloudType<.5?850.:cloudType<1.5?250.:380.;
  if(cloudType>.5&&cloudType<1.5){bottom=3300.;shape=fbm(vec2(q.x*.45+q.y*2.,q.y*7.));}
@@ -312,22 +321,23 @@ void main(){
  float samplePhase=volumeHash(ivec3(ivec2(gl_FragCoord.xy),719))-.5;
  for(int i=0;i<raySteps;i++){
  if(d>=end||trans<.012)break;
- float nominalStep=max(shaped?(storm?60.:32.):85.,max(0.,d-18000.)*.014);
- vec3 p=cloudPoint(ro,rd,clamp(d+samplePhase*nominalStep*.65,t,end));
+ float nearStep=shaped?mix(storm?8.:4.,storm?60.:32.,smoothstep(200.,4500.,d)):85.;
+ float nominalStep=max(nearStep,max(0.,d-18000.)*.014);
+ vec3 p=cloudPoint(ro,rd,clamp(d+samplePhase*nominalStep*mix(.25,.65,smoothstep(500.,4500.,d)),t,end));
  float distanceToCloud=shaped?cloudField(p):0.;
  // Coarser distant samples follow projected scale. Nearby billows retain detail;
  // distant silhouettes use footprint filtering instead of disappearing at 28 km.
  float farStep=max(0.,d-18000.)*.035;
  if(shaped&&distanceToCloud>max(35.,farStep*.15)){d+=clamp(distanceToCloud*.55,max(35.,farStep*.35),max(storm?1100.:700.,farStep));continue;}
- float stepLength=max(shaped?(storm?60.:32.):85.,farStep*.4);
- float softness=max(18.,d*.0012);
- float den=shaped?(1.-smoothstep(-45.-softness*.3,softness,distanceToCloud)):density(p);
+ float stepLength=nominalStep;
+ float den=shaped?shapedDensity(p,distanceToCloud):density(p);
  if(den>.001){
  float lightScale=storm?2.5:1.;
  float optical=density(p+sun*90.*lightScale)*.65+density(p+sun*220.*lightScale)*.9+density(p+sun*460.*lightScale)*.65;
- float surfaceLight=shaped?clamp((cloudField(p+sun*80.*lightScale)-distanceToCloud)/(80.*lightScale),0.,1.):.5;
+ float probe=mix(18.,80.,smoothstep(250.,4500.,d))*lightScale;
+ float surfaceLight=shaped?clamp((cloudField(p+sun*probe)-distanceToCloud)/probe,0.,1.):.5;
  float lighting=exp(-optical*.8)*.55+surfaceLight*.45;
- float alpha=1.-exp(-den*stepLength*.012);
+ float alpha=1.-exp(-den*stepLength*.020);
  // Elevated clouds retain direct light after the ground has entered twilight.
  float localSun=sun.y+sqrt(2.*max(p.y,0.)/EARTH_RADIUS);
  float lit=smoothstep(-.025,.045,localSun);
