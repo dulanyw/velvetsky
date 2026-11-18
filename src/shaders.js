@@ -10,24 +10,40 @@ float fbm(vec2 p){return .55*noise(p)+.27*noise(p*2.03)+.13*noise(p*4.07)+.05*no
 float volumeNoise(vec3 p){float z=floor(p.y);return mix(noise(p.xz+z*vec2(37,17)),noise(p.xz+(z+1.)*vec2(37,17)),smoothstep(0.,1.,fract(p.y)));}
 // Ellipsoid distance bound in metres. Used for safe empty-space traversal.
 float ellipsoid(vec3 p,vec3 radii){return (length(p/radii)-1.)*min(radii.x,min(radii.y,radii.z));}
+// Smooth union joins cloud lobes into a shared body rather than intersecting balls.
+float mergeCloud(float a,float b,float width){float h=max(width-abs(a-b),0.)/width;return min(a,b)-h*h*width*.25;}
 // World-anchored cumulus clusters: broad flat bases and overlapping rising lobes.
 // Returns signed distance in metres; coverage controls occupancy and cluster size.
 float cumulusField(vec3 p){
+ if(cover<.001)return 10000.;
+ vec3 original=p;
+ // Broad coherent warping breaks the underlying placement grid into organic banks.
+ p.xz+=vec2(noise(p.xz*.00055+19.),noise(p.xz*.00055+83.))*360.-180.;
  vec2 tile=floor(p.xz/2600.);float field=10000.;
  for(int x=-1;x<=1;x++)for(int z=-1;z<=1;z++){
  vec2 id=tile+vec2(float(x),float(z));float seed=hash(id+17.);
- if(seed>cover*.92||cover<.001)continue;
+ float growth=smoothstep(seed*.76,seed*.76+.24,cover);
+ if(growth<.001)continue;
  vec2 center=(id+.5)*2600.+vec2(hash(id+31.),hash(id+73.))*600.-300.;
- float scale=.8+hash(id+9.)*.55;vec3 q=(p-vec3(center.x,1800.,center.y))/scale;
+ float scale=(.8+hash(id+9.)*.55)*sqrt(growth);vec3 q=(p-vec3(center.x,1800.,center.y))/scale;
+ float spread=mix(.55,2.1,cover);q.xz/=spread;
  float rotation=seed*6.28318;q.xz=mat2(cos(rotation),-sin(rotation),sin(rotation),cos(rotation))*q.xz;
  q.x/=.8+hash(id+5.)*.6;q.y/=.7+hash(id+6.)*.65;
  float body=ellipsoid(q-vec3(0,30,0),vec3(640,210,470));
- body=min(body,ellipsoid(q-vec3(-270,190,20),vec3(330,350,310)));
- body=min(body,ellipsoid(q-vec3(160,310,10),vec3(390,430,350)));
- body=min(body,ellipsoid(q-vec3(440,130,-50),vec3(280,290,280)));
- body=min(body,ellipsoid(q-vec3(30,180,280),vec3(300,300,280)));
- body=max(body,1600.-p.y);field=min(field,body*scale);
+ body=mergeCloud(body,ellipsoid(q-vec3(-270,190,20),vec3(330,350,310)),110.);
+ body=mergeCloud(body,ellipsoid(q-vec3(160,310,10),vec3(390,430,350)),110.);
+ body=mergeCloud(body,ellipsoid(q-vec3(440,130,-50),vec3(280,290,280)),100.);
+ body=mergeCloud(body,ellipsoid(q-vec3(30,180,280),vec3(300,300,280)),110.);
+ body*=scale*min(.7,spread*.7);body=max(body,1600.-p.y);field=mergeCloud(field,body,150.);
  }
+ // A regional weather field supplies connected bodies between the rising towers.
+ // Increasing cover shrinks its holes; at 100% its continuous base has no holes.
+ float joining=smoothstep(.55,1.,cover);
+ float weather=fbm(original.xz*.00042+vec2(41,67));
+ float bottom=1580.+noise(original.xz*.001)*90.;
+ float top=1920.+fbm(original.xz*.0012)*500.;
+ float bank=max(max(bottom-original.y,original.y-top),(weather-mix(-.3,1.1,joining))*2200.);
+ if(cover>.55)field=mergeCloud(field,bank,180.);
  // Small boundary erosion reveals billows without dissolving the silhouette.
  if(field<180.)field+=(volumeNoise(p*.006)-.5)*125.+(volumeNoise(p*.017)-.5)*40.+(volumeNoise(p*.038)-.5)*12.;
  return field;
@@ -77,7 +93,7 @@ void main(){
  for(int i=0;i<128;i++){
  if(d>end||trans<.012)break;vec3 p=ro+rd*d;
  float distanceToCloud=cloudType<.5?cumulusField(p):0.;
- if(cloudType<.5&&distanceToCloud>35.){d+=clamp(distanceToCloud*.85,35.,900.);continue;}
+ if(cloudType<.5&&distanceToCloud>35.){d+=clamp(distanceToCloud*.55,35.,700.);continue;}
  float stepLength=cloudType<.5?32.:stride;
  float den=cloudType<.5?(1.-smoothstep(-45.,18.,distanceToCloud)):density(p);
  if(den>.001){
