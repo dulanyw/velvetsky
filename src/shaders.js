@@ -4,6 +4,7 @@ export const fragment = `#version 300 es
 precision highp float;
 in vec2 uv;out vec4 frag;
 uniform vec2 resolution;uniform float travel,altitude,cover,hour,cloudType;uniform vec2 look;
+const float EARTH_RADIUS=6371000.;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
 float fbm(vec2 p){return .55*noise(p)+.27*noise(p*2.03)+.13*noise(p*4.07)+.05*noise(p*8.1);}
@@ -59,12 +60,26 @@ float density(vec3 p){
 vec3 sky(vec3 rd,vec3 sun,float day,float warm){
  vec3 horizon=mix(vec3(.055,.07,.12),mix(vec3(.65,.77,.81),vec3(.91,.67,.43),warm),day);
  vec3 zenith=mix(vec3(.009,.018,.045),vec3(.19,.41,.61),day);
- vec3 c=mix(horizon,zenith,pow(max(rd.y,0.),.45));float glow=pow(max(dot(rd,sun),0.),12.);
- c+=vec3(1.,.59,.25)*glow*.22*day;c+=vec3(1.,.82,.51)*smoothstep(.99965,.9999,dot(rd,sun))*2.5;
- return c;
+ return mix(horizon,zenith,pow(max(rd.y,0.),.45));
+}
+// Crisp angular disc with only a pixel-wide antialiased boundary; no glow or bloom.
+float sunDisc(vec2 screen,vec3 sun){
+ // Project into the camera plane so the disc stays circular even near the edge.
+ float yaw=-look.x;sun.xz=mat2(cos(yaw),-sin(yaw),sin(yaw),cos(yaw))*sun.xz;
+ float pitch=-look.y;sun.yz=mat2(cos(pitch),sin(pitch),-sin(pitch),cos(pitch))*sun.yz;
+ vec2 center=sun.xy/max(sun.z,.001);float radius=.0093;float aa=.68/resolution.y;
+ return (1.-smoothstep(radius-aa,radius+aa,length(screen*.68-center)))*step(.001,sun.z);
+}
+// Analytic ray/sphere intersection in the camera's local tangent frame.
+// Returns nearest ground distance in metres, or -1 for sky. Rationalized root
+// avoids subtracting two Earth-sized numbers near the ground. Constant GPU cost.
+float groundDistance(vec3 rd,float height){
+ float b=(EARTH_RADIUS+height)*rd.y;float c=height*(2.*EARTH_RADIUS+height);
+ float discriminant=b*b-c;if(b>=0.||discriminant<0.)return -1.;
+ return c/(-b+sqrt(discriminant));
 }
 vec3 land(vec3 p,vec3 rd,vec3 sun,float day,float warm){
- vec2 w=p.xz;vec2 cell=floor(w/680.);vec2 f=fract(w/680.);float seed=hash(cell);float product=hash(cell+45.);
+ vec2 w=p.xz;float footprint=length(fwidth(w));vec2 cell=floor(w/680.);vec2 f=fract(w/680.);float seed=hash(cell);float product=hash(cell+45.);
  vec3 a=vec3(.24,.29,.105),b=vec3(.49,.40,.18);vec3 c=mix(a,b,product);
  c=mix(c,vec3(.17,.24,.12),step(.76,product));c*=.83+.24*noise(w*.025);
  float rows=.5+.5*sin((seed>.5?w.x:w.y)*.43);c*=.94+.06*rows;
@@ -76,17 +91,22 @@ vec3 land(vec3 p,vec3 rd,vec3 sun,float day,float warm){
  vec2 block=fract(w/55.);float roof=step(.22,block.x)*step(block.x,.8)*step(.2,block.y)*step(block.y,.74);vec3 roofs=mix(vec3(.25,.26,.23),vec3(.55,.49,.39),hash(floor(w/55.)));
  c=mix(c,mix(vec3(.3,.32,.27),roofs,roof),town);
  float trees=step(.72,noise(w*.015))*smoothstep(.028,.009,edge);c=mix(c,vec3(.10,.17,.085),trees*(1.-water));
+ // Average subpixel fields into their material colour, rather than fading to fog.
+ // This suppresses far-horizon shimmer while keeping terrain distinct from sky.
+ c=mix(c,mix(vec3(.32,.33,.14),vec3(.17,.28,.29),water),smoothstep(60.,650.,footprint));
  c*=mix(vec3(.16,.21,.32),mix(vec3(1.05,1.,.83),vec3(1.12,.79,.49),warm),day);
  float shadow=density(vec3(w.x+1100.,1700.,w.y+600.));c*=1.-shadow*.32;
- float haze=1.-exp(-length(p.xz-vec2(0,travel))*.000065);return mix(c,sky(vec3(rd.x,.015,rd.z),sun,day,warm),haze);
+ return c;
 }
 void main(){
  vec2 screen=uv;screen.x*=resolution.x/resolution.y;vec3 rd=normalize(vec3(screen*.68,1.));
  float pitch=look.y;rd.yz=mat2(cos(pitch),sin(pitch),-sin(pitch),cos(pitch))*rd.yz;
  float yaw=look.x;rd.xz=mat2(cos(yaw),-sin(yaw),sin(yaw),cos(yaw))*rd.xz;
  float angle=(hour-6.)/12.*3.14159265;vec3 sun=normalize(vec3(-.65,sin(angle),-cos(angle)*.8));float day=smoothstep(-.18,.12,sun.y);float warm=1.-smoothstep(.12,.65,sun.y);
- vec3 ro=vec3(0,altitude,travel);vec3 col=sky(rd,sun,day,warm);float ground=60000.;
- if(rd.y<-.001){ground=-ro.y/rd.y;vec3 p=ro+rd*ground;col=land(p,rd,sun,day,warm);}
+ vec3 ro=vec3(0,altitude,travel);vec3 col=sky(rd,sun,day,warm);
+ col+=sunDisc(screen,sun)*vec3(4.,3.45,2.65);
+ float hit=groundDistance(rd,altitude);float ground=hit<0.?1.e8:hit;
+ if(hit>=0.){vec3 p=ro+rd*ground;col=land(p,rd,sun,day,warm);}
  float entry=(1250.-ro.y)/rd.y,exit=(4100.-ro.y)/rd.y;
  float t=max(0.,min(entry,exit));float end=min(min(ground,28000.),max(entry,exit));float stride=max(1.,(end-t)/72.);
  float trans=1.;vec3 fog=vec3(0);float d=t;
@@ -104,7 +124,7 @@ void main(){
  vec3 ambient=mix(vec3(.29,.36,.45),vec3(.43,.48,.55),smoothstep(1550.,2400.,p.y));
  vec3 direct=mix(vec3(1.04,1.03,.99),vec3(1.17,.88,.59),warm*.65);
  vec3 shade=(ambient+direct*lighting*.85)*(.12+.88*day);
- shade=mix(shade,sky(rd,sun,day,warm),1.-exp(-d*.000025));fog+=trans*alpha*shade;trans*=1.-alpha;}
+ fog+=trans*alpha*shade;trans*=1.-alpha;}
  d+=stepLength;}
  col=col*trans+fog;
  // The suspension lines remain outside the forward hemisphere.
