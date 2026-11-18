@@ -1,16 +1,15 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Prairie · a quiet flight</title><link rel="stylesheet" href="src/style.css"></head>
 <body><canvas id="sky" aria-label="Interactive flight above fictional prairie farmland"></canvas>
-<header><span class="mark">◌</span><div>PRAIRIE<small>A QUIET FLIGHT</small></div></header>
 <button id="toggle" aria-expanded="true" aria-controls="panel">Flight settings <span>☷</span></button>
-<aside id="panel"><div class="eyebrow">YOUR CORNER OF THE SKY</div><h1>Room to drift.</h1><p>A little distance. A slower afternoon.</p>
+<aside id="panel" aria-label="Flight settings">
 <label>Altitude <output id="altitude-value"></output><input id="altitude" type="range" min="200" max="3048" step="1" value="850"></label>
 <label>Cruising speed <output id="speed-value"></output><input id="speed" type="range" min="0" max="500" value="65"></label>
 <label>Cloud cover <output id="cover-value"></output><input id="cover" type="range" min="0" max="100" value="42"></label>
 <label>Cloud character<select id="cloud"><option value="0">Fair-weather cumulus</option><option value="1">High, feathered cirrus</option><option value="2">Soft layered stratus</option></select></label>
 <label>Time of day <output id="hour-value"></output><input id="hour" type="range" min="0" max="24" step="0.05" value="17.6"></label>
+<label>Moon<select id="moon"><option value="0">Off</option><option value="1">Crescent</option><option value="2">Half</option><option value="3">Full</option></select></label>
 <label>Rendering<select id="quality"><option value="0.65">Quiet · low footprint</option><option value="0.9">Balanced</option><option value="1.25">Fine detail</option></select></label>
 <div class="actions"><button id="forward">Look forward</button><button id="pause" aria-pressed="false">Pause</button><button id="fullscreen" aria-label="Toggle fullscreen">⛶</button></div>
-<div class="footnote">FICTIONAL LANDSCAPE · LIVE PROCEDURAL VIEW</div></aside>
-<footer><span><i></i> <span id="status">CRUISING THE PRAIRIE</span></span><span>Drag to look around <b>·</b> Double-click to face forward <b>·</b> H to hide controls</span></footer>
+</aside>
 <div id="error" role="alert" hidden></div><script type="module" src="src/main.js"></script></body></html>

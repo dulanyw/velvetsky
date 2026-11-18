@@ -26,6 +26,8 @@ Drag to look, double-click to recenter, and press H to hide the interface. The c
 
 Altitude displays feet and reaches 10,000 ft (3,048 m); rendering keeps metre units internally. Cruising speed reaches 500 km/h. Sunset colours vary with sun elevation and viewing bearing, with warm directional cloud lighting, cooler shadowed interiors, and an elevation-dependent twilight cutoff. These are inexpensive artistic lighting approximations, not a full atmospheric scattering simulation. Time remains fixed until adjusted.
 
+Stars emerge progressively through twilight, with varied brightness, warm/cool colours, and reduced visibility toward the horizon. The procedural star field is fictional, not a catalogue of real constellations. Moon options are Off (default), Crescent, Half, and Full, with an illustrative nightly arc, textured disc, and subtle cloud/water illumination. Phases are selected artistically rather than calculated from a calendar. Ground and clouds occlude celestial objects. Only functional controls remain on the view; press H to hide them.
+
 Run `node tests/server.test.cjs` with the server running. Syntax checks: `node --check src/main.js`, `node --check src/shaders.js`, and `node --check server.cjs`.
 
 ## Current limitations

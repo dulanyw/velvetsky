@@ -3,7 +3,7 @@ in vec2 position;out vec2 uv;void main(){uv=position;gl_Position=vec4(position,0
 export const fragment = `#version 300 es
 precision highp float;
 in vec2 uv;out vec4 frag;
-uniform vec2 resolution;uniform float travel,altitude,cover,hour,cloudType;uniform vec2 look;
+uniform vec2 resolution;uniform float travel,altitude,cover,hour,cloudType,moon;uniform vec2 look;
 const float EARTH_RADIUS=6371000.;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
@@ -86,6 +86,45 @@ float sunDisc(vec2 screen,vec3 sun){
  vec2 center=sun.xy/max(sun.z,.001);float radius=.0093;float aa=.68/resolution.y;
  return (1.-smoothstep(radius-aa,radius+aa,length(screen*.68-center)))*step(.001,sun.z);
 }
+// Fictional celestial orientation: fixed with respect to the sky, never the camera.
+// Time rotates the stars slowly; forward travel does not translate celestial objects.
+vec3 lunarDirection(){return normalize(vec3(-.30,sin((hour-18.)/12.*3.14159265)*.32,.9));}
+float lunarStrength(){return moon<.5?0.:moon<1.5?.12:moon<2.5?.45:1.;}
+// Cube-projected procedural star field avoids polar concentration. Magnitudes vary;
+// bright stars emerge first in twilight and horizon extinction hides low faint stars.
+// Pixel-footprint filtering keeps small points stable without deliberate twinkling.
+vec3 stars(vec3 direction,float solarElevation){
+ if(solarElevation>-.02)return vec3(0);
+ float turn=hour*.261799388;direction.xz=mat2(cos(turn),-sin(turn),sin(turn),cos(turn))*direction.xz;
+ vec3 a=abs(direction);vec2 plane;float face;
+ if(a.x>a.y&&a.x>a.z){plane=direction.yz/a.x;face=direction.x>0.?1.:2.;}
+ else if(a.y>a.z){plane=direction.xz/a.y;face=direction.y>0.?3.:4.;}
+ else{plane=direction.xy/a.z;face=direction.z>0.?5.:6.;}
+ vec2 grid=plane*110.;vec2 id=floor(grid);float seed=hash(id+face*137.);
+ vec2 center=.18+.64*vec2(hash(id+face*31.),hash(id+face*57.));
+ float distanceToStar=length(fract(grid)-center);float magnitude=pow(hash(id+face*97.),5.);
+ float radius=mix(.045,.14,magnitude);float aa=max(length(fwidth(grid))*.5,.008);
+ float point=(1.-smoothstep(max(0.,radius-aa),radius+aa,distanceToStar))*min(1.,radius*radius/(aa*aa));
+ float emergence=1.-smoothstep(-.26+ magnitude*.13,-.09+magnitude*.07,solarElevation);
+ float extinction=smoothstep(.005,.22,direction.y);
+ vec3 colour=mix(vec3(.68,.79,1.),vec3(1.,.85,.66),hash(id+face*41.));
+ return colour*point*(.07+magnitude*1.3)*step(.965,seed)*emergence*extinction*(1.-lunarStrength()*.4);
+}
+// Render a small textured lunar sphere with a geometric phase terminator.
+// Returns RGB and coverage; the entire disc masks background stars, including its dark side.
+vec4 lunarDisc(vec3 rd,float solarElevation){
+ if(moon<.5||solarElevation>.035)return vec4(0);
+ vec3 direction=lunarDirection();vec3 right=normalize(cross(vec3(0,1,0),direction));vec3 up=cross(direction,right);
+ float facing=dot(rd,direction);vec2 q=vec2(dot(rd,right),dot(rd,up))/max(facing,.001)/.0093;
+ float radius=length(q);float aa=max(length(fwidth(q))*.5,.01);float mask=1.-smoothstep(1.-aa,1.+aa,radius);
+ vec3 normal=vec3(q,sqrt(max(0.,1.-dot(q,q))));
+ vec3 light=moon<1.5?normalize(vec3(.9,.08,-.55)):moon<2.5?vec3(1,0,0):vec3(0,0,1);
+ float lit=smoothstep(-.025,.045,dot(normal,light));
+ float maria=.56+.44*fbm(q*3.1+vec2(81,27));
+ vec3 colour=vec3(.72,.76,.82)*maria*(.025+lit*.95);
+ mask*=step(.001,facing)*step(.5,moon)*(1.-smoothstep(-.16,.035,solarElevation));
+ return vec4(colour,mask);
+}
 // Analytic ray/sphere intersection in the camera's local tangent frame.
 // Returns nearest ground distance in metres, or -1 for sky. Rationalized root
 // avoids subtracting two Earth-sized numbers near the ground. Constant GPU cost.
@@ -111,6 +150,9 @@ vec3 land(vec3 p,vec3 rd,vec3 sun,float day,float warm){
  // This suppresses far-horizon shimmer while keeping terrain distinct from sky.
  c=mix(c,mix(vec3(.32,.33,.14),vec3(.17,.28,.29),water),smoothstep(60.,650.,footprint));
  c*=vec3(.045,.065,.12)+sunlight(sun.y)*smoothstep(-.035,.16,sun.y)*.85;
+ float moonlight=lunarStrength()*(1.-smoothstep(-.18,-.02,sun.y))*max(lunarDirection().y,0.);
+ c+=vec3(.014,.020,.033)*moonlight;
+ c+=water*pow(max(dot(reflect(rd,vec3(0,1,0)),lunarDirection()),0.),110.)*vec3(.20,.25,.34)*moonlight;
  float shadow=density(vec3(w.x+1100.,1700.,w.y+600.));c*=1.-shadow*.32;
  return c;
 }
@@ -120,6 +162,7 @@ void main(){
  float yaw=look.x;rd.xz=mat2(cos(yaw),-sin(yaw),sin(yaw),cos(yaw))*rd.xz;
  float angle=(hour-6.)/12.*3.14159265;vec3 sun=normalize(vec3(-.65,sin(angle),-cos(angle)*.8));float day=smoothstep(-.18,.12,sun.y);float warm=1.-smoothstep(.12,.65,sun.y);
  vec3 ro=vec3(0,altitude,travel);vec3 col=sky(rd,sun,day,warm);
+ col+=stars(rd,sun.y);vec4 lunar=lunarDisc(rd,sun.y);col=mix(col,lunar.rgb,lunar.a);
  col+=sunDisc(screen,sun)*sunlight(sun.y)*3.8;
  float hit=groundDistance(rd,altitude);float ground=hit<0.?1.e8:hit;
  if(hit>=0.){vec3 p=ro+rd*ground;col=land(p,rd,sun,day,warm);}
@@ -146,6 +189,8 @@ void main(){
  vec3 direct=sunlight(localSun);
  float silver=pow(max(dot(rd,sun),0.),10.)*exp(-optical*1.2)*.22;
  vec3 shade=ambient+direct*(lighting*.95+silver)*lit;
+ float moonlight=lunarStrength()*(1.-smoothstep(-.18,-.02,sun.y))*max(lunarDirection().y,0.);
+ if(moonlight>.001){float moonFacing=cloudType<.5?clamp((cumulusField(p+lunarDirection()*100.)-distanceToCloud)/100.,0.,1.):.4;shade+=vec3(.07,.09,.14)*moonlight*(.25+.75*moonFacing);}
  fog+=trans*alpha*shade;trans*=1.-alpha;}
  d+=stepLength;}
  col=col*trans+fog;
