@@ -26,8 +26,8 @@ function drawScene(renderer,state){const {gl,uniforms:u,canvas}=renderer;resizeR
 
 /** Bind accessible controls to explicit scene state. Installs DOM event handlers. */
 function bindControls(canvas,state){
- const formatters={altitude:v=>`${Math.round(v).toLocaleString()} m`,speed:v=>`${v} km/h`,cover:v=>`${v}%`,hour:v=>`${String(Math.floor(v)%24).padStart(2,'0')}:${String(Math.floor(v%1*60)).padStart(2,'0')}`};
- for(const key of ['altitude','speed','cover','hour','cloud','quality']){const input=document.getElementById(key);input.value=state[key];const sync=()=>{state[key]=Number(input.value);const output=document.getElementById(`${key}-value`);if(output)output.value=formatters[key](state[key]);};input.addEventListener('input',sync);sync();}
+ const formatters={altitude:v=>`${Math.round(v/.3048).toLocaleString()} ft`,speed:v=>`${v} km/h`,cover:v=>`${v}%`,hour:v=>`${String(Math.floor(Math.round(v*60)/60)%24).padStart(2,'0')}:${String(Math.round(v*60)%60).padStart(2,'0')}`};
+ for(const key of ['altitude','speed','cover','hour','cloud','quality']){const input=document.getElementById(key);input.value=state[key];const sync=()=>{state[key]=Number(input.value);const output=document.getElementById(`${key}-value`);if(output){output.value=formatters[key](state[key]);input.setAttribute('aria-valuetext',output.value);}};input.addEventListener('input',sync);sync();}
  const recenter=()=>{state.yaw=0;state.pitch=.12;};
  document.getElementById('forward').onclick=recenter;canvas.ondblclick=recenter;
  let drag=null;canvas.addEventListener('pointerdown',event=>{drag={x:event.clientX,y:event.clientY};canvas.setPointerCapture(event.pointerId);});
@@ -45,4 +45,3 @@ function startFlight(renderer,state){let last=0;function frame(now){requestAnima
 /** Orchestrate initialization; surface any rendering failure as readable UI. */
 function main(){try{const canvas=document.getElementById('sky');const state={...config,travel:0,yaw:0,pitch:.12,paused:false};const renderer=createRenderer(canvas);bindControls(canvas,state);startFlight(renderer,state);canvas.addEventListener('webglcontextlost',event=>{event.preventDefault();const box=document.getElementById('error');box.hidden=false;box.textContent='The graphics context was interrupted. Reload to resume your flight.';});}catch(error){const box=document.getElementById('error');box.hidden=false;box.textContent=error.message;console.error(error);}}
 main();
-

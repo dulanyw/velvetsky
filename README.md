@@ -24,6 +24,8 @@ Run `node server.cjs`, then open http://127.0.0.1:8467. No package installation 
 
 Drag to look, double-click to recenter, and press H to hide the interface. The controls also offer pause, fullscreen, and three rendering resolutions. The default targets 30 frames per second with a reduced pixel budget and pauses travel when the tab is hidden.
 
+Altitude displays feet and reaches 10,000 ft (3,048 m); rendering keeps metre units internally. Cruising speed reaches 500 km/h. Sunset colours vary with sun elevation and viewing bearing, with warm directional cloud lighting, cooler shadowed interiors, and an elevation-dependent twilight cutoff. These are inexpensive artistic lighting approximations, not a full atmospheric scattering simulation. Time remains fixed until adjusted.
+
 Run `node tests/server.test.cjs` with the server running. Syntax checks: `node --check src/main.js`, `node --check src/shaders.js`, and `node --check server.cjs`.
 
 ## Current limitations

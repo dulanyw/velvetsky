@@ -57,10 +57,26 @@ float density(vec3 p){
  float vertical=smoothstep(bottom,bottom+150.,p.y)*(1.-smoothstep(bottom+height*.35,bottom+height,p.y));
  float threshold=mix(.85,.26,cover);return smoothstep(threshold,threshold+.16,shape)*vertical;
 }
+// Shared spectral approximation: long low-angle paths favour amber then red.
+// elevation is sine of local sun elevation, including horizon dip at cloud height.
+vec3 sunlight(float elevation){
+ vec3 low=mix(vec3(1.25,.16,.065),vec3(1.35,.58,.20),smoothstep(-.06,.10,elevation));
+ return mix(low,vec3(1.08,1.04,.94),smoothstep(.08,.48,elevation));
+}
+// Layered sunset colours depend on elevation and bearing, rather than a global tint.
+// Broad sky bands leave the separate solar disc crisp and free of a bloom halo.
 vec3 sky(vec3 rd,vec3 sun,float day,float warm){
- vec3 horizon=mix(vec3(.055,.07,.12),mix(vec3(.65,.77,.81),vec3(.91,.67,.43),warm),day);
- vec3 zenith=mix(vec3(.009,.018,.045),vec3(.19,.41,.61),day);
- return mix(horizon,zenith,pow(max(rd.y,0.),.45));
+ float h=max(rd.y,0.);float sunset=exp(-pow((sun.y-.015)/.24,2.));
+ vec2 bearing=normalize(sun.xz);float facing=dot(normalize(rd.xz+vec2(.00001)),bearing)*.5+.5;
+ vec3 clear=mix(vec3(.59,.73,.86),vec3(.12,.32,.58),pow(h,.48));
+ vec3 horizon=mix(vec3(.72,.32,.37),vec3(1.32,.45,.12),pow(facing,1.6));
+ vec3 peach=mix(vec3(.52,.32,.57),vec3(1.06,.48,.36),facing);
+ vec3 dusk=mix(horizon,peach,smoothstep(0.,.18,h));
+ dusk=mix(dusk,vec3(.34,.25,.53),smoothstep(.12,.42,h));
+ dusk=mix(dusk,vec3(.075,.15,.34),smoothstep(.35,.9,h));
+ vec3 daylight=mix(clear,dusk,sunset);
+ vec3 night=mix(vec3(.025,.028,.075),vec3(.006,.012,.035),pow(h,.5));
+ return mix(night,daylight,smoothstep(-.20,.025,sun.y));
 }
 // Crisp angular disc with only a pixel-wide antialiased boundary; no glow or bloom.
 float sunDisc(vec2 screen,vec3 sun){
@@ -94,7 +110,7 @@ vec3 land(vec3 p,vec3 rd,vec3 sun,float day,float warm){
  // Average subpixel fields into their material colour, rather than fading to fog.
  // This suppresses far-horizon shimmer while keeping terrain distinct from sky.
  c=mix(c,mix(vec3(.32,.33,.14),vec3(.17,.28,.29),water),smoothstep(60.,650.,footprint));
- c*=mix(vec3(.16,.21,.32),mix(vec3(1.05,1.,.83),vec3(1.12,.79,.49),warm),day);
+ c*=vec3(.045,.065,.12)+sunlight(sun.y)*smoothstep(-.035,.16,sun.y)*.85;
  float shadow=density(vec3(w.x+1100.,1700.,w.y+600.));c*=1.-shadow*.32;
  return c;
 }
@@ -104,7 +120,7 @@ void main(){
  float yaw=look.x;rd.xz=mat2(cos(yaw),-sin(yaw),sin(yaw),cos(yaw))*rd.xz;
  float angle=(hour-6.)/12.*3.14159265;vec3 sun=normalize(vec3(-.65,sin(angle),-cos(angle)*.8));float day=smoothstep(-.18,.12,sun.y);float warm=1.-smoothstep(.12,.65,sun.y);
  vec3 ro=vec3(0,altitude,travel);vec3 col=sky(rd,sun,day,warm);
- col+=sunDisc(screen,sun)*vec3(4.,3.45,2.65);
+ col+=sunDisc(screen,sun)*sunlight(sun.y)*3.8;
  float hit=groundDistance(rd,altitude);float ground=hit<0.?1.e8:hit;
  if(hit>=0.){vec3 p=ro+rd*ground;col=land(p,rd,sun,day,warm);}
  float entry=(1250.-ro.y)/rd.y,exit=(4100.-ro.y)/rd.y;
@@ -121,9 +137,15 @@ void main(){
  float surfaceLight=cloudType<.5?clamp((cumulusField(p+sun*80.)-distanceToCloud)/80.,0.,1.):.5;
  float lighting=exp(-optical*.8)*.55+surfaceLight*.45;
  float alpha=1.-exp(-den*stepLength*.012);
- vec3 ambient=mix(vec3(.29,.36,.45),vec3(.43,.48,.55),smoothstep(1550.,2400.,p.y));
- vec3 direct=mix(vec3(1.04,1.03,.99),vec3(1.17,.88,.59),warm*.65);
- vec3 shade=(ambient+direct*lighting*.85)*(.12+.88*day);
+ // Elevated clouds retain direct light after the ground has entered twilight.
+ float localSun=sun.y+sqrt(2.*max(p.y,0.)/EARTH_RADIUS);
+ float lit=smoothstep(-.025,.045,localSun);
+ float sunset=exp(-pow(sun.y/.24,2.));
+ vec3 ambient=mix(vec3(.27,.36,.49),vec3(.22,.15,.35),sunset);
+ ambient*=mix(.6,1.,smoothstep(1550.,2600.,p.y))*(.10+.9*day);
+ vec3 direct=sunlight(localSun);
+ float silver=pow(max(dot(rd,sun),0.),10.)*exp(-optical*1.2)*.22;
+ vec3 shade=ambient+direct*(lighting*.95+silver)*lit;
  fog+=trans*alpha*shade;trans*=1.-alpha;}
  d+=stepLength;}
  col=col*trans+fog;
