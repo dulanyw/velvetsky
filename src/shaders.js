@@ -20,6 +20,14 @@ float eclipseCoverage(){
  return area/3.14159265;
 }
 float eclipseDaylight(){if(hour<=6.||hour>=18.)return 1.;return mix(1.,max(.025,pow(1.-eclipseCoverage(),.65)),step(.5,eclipse));}
+// Totality progressively lowers the effective sky brightness for stellar visibility.
+// Keep actual solar elevation for sky/cloud lighting; annular eclipses do not reveal
+// the night star field. Zero obscuration restores the ordinary twilight behaviour.
+float stellarSkyElevation(float solarElevation){
+ if(eclipse<.5||eclipse>1.5||solarElevation<=0.)return solarElevation;
+ float darkness=smoothstep(.90,1.,eclipseCoverage());
+ return mix(solarElevation,-.40,darkness);
+}
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 // Explicit floor subtraction preserves the interpolation endpoint for tiny negative
 // coordinates. GPU fract() can wrap a rounded 1 back to 0, causing a seam on axis.
@@ -215,7 +223,7 @@ void main(){
  float angle=(hour-6.)/12.*3.14159265;vec3 sun=normalize(vec3(-.65,sin(angle),-cos(angle)*.8));float day=smoothstep(-.18,.12,sun.y);float warm=1.-smoothstep(.12,.65,sun.y);
  vec3 ro=vec3(0,altitude,travel);vec3 col=sky(rd,sun,day,warm);
  col=mix(vec3(.006,.012,.024),col,pow(eclipseDaylight(),.7));
- col+=stars(rd,sun.y);vec4 lunar=lunarDisc(screen,rd,sun.y);col=mix(col,lunar.rgb,lunar.a);
+ col+=stars(rd,stellarSkyElevation(sun.y));vec4 lunar=lunarDisc(screen,rd,sun.y);col=mix(col,lunar.rgb,lunar.a);
  vec4 solar=solarBody(screen,sun);col=col*(1.-solar.a)+solar.rgb;
  float hit=groundDistance(rd,altitude);float ground=hit<0.?1.e8:hit;
  if(hit>=0.){vec3 p=ro+rd*ground;col=land(p,rd,sun,day,warm);}
