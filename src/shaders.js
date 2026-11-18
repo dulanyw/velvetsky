@@ -6,9 +6,11 @@ in vec2 uv;out vec4 frag;
 uniform vec2 resolution;uniform float travel,altitude,cover,hour,cloudType,moon;uniform vec2 look;
 const float EARTH_RADIUS=6371000.;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
+// Explicit floor subtraction preserves the interpolation endpoint for tiny negative
+// coordinates. GPU fract() can wrap a rounded 1 back to 0, causing a seam on axis.
+float noise(vec2 p){vec2 i=floor(p),f=p-i;f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
 float fbm(vec2 p){return .55*noise(p)+.27*noise(p*2.03)+.13*noise(p*4.07)+.05*noise(p*8.1);}
-float volumeNoise(vec3 p){float z=floor(p.y);return mix(noise(p.xz+z*vec2(37,17)),noise(p.xz+(z+1.)*vec2(37,17)),smoothstep(0.,1.,fract(p.y)));}
+float volumeNoise(vec3 p){float z=floor(p.y);return mix(noise(p.xz+z*vec2(37,17)),noise(p.xz+(z+1.)*vec2(37,17)),smoothstep(0.,1.,p.y-z));}
 // Ellipsoid distance bound in metres. Used for safe empty-space traversal.
 float ellipsoid(vec3 p,vec3 radii){return (length(p/radii)-1.)*min(radii.x,min(radii.y,radii.z));}
 // Smooth union joins cloud lobes into a shared body rather than intersecting balls.
