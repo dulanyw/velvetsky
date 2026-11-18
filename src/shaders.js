@@ -3,8 +3,23 @@ in vec2 position;out vec2 uv;void main(){uv=position;gl_Position=vec4(position,0
 export const fragment = `#version 300 es
 precision highp float;
 in vec2 uv;out vec4 frag;
-uniform vec2 resolution;uniform float travel,altitude,cover,hour,cloudType,moon;uniform vec2 look;
+uniform vec2 resolution;uniform float travel,altitude,cover,hour,cloudType,moon,celestialScale,eclipse,eclipseProgress;uniform vec2 look;
 const float EARTH_RADIUS=6371000.;
+const float CELESTIAL_RADIUS=.004625;
+// Shared display radius: the real ~0.53-degree diameter multiplied by UI scale.
+float celestialRadius(){return CELESTIAL_RADIUS*celestialScale;}
+// Eclipse centres share the solar projection. Progress runs first to last contact.
+float eclipseSeparation(){return abs(eclipseProgress-.5)*4.4;}
+float eclipseMoonRadius(){return eclipse<1.5?1.06:.92;}
+// Analytic two-circle overlap; returns fraction of the solar photosphere obscured.
+float eclipseCoverage(){
+ if(eclipse<.5)return 0.;float r=eclipseMoonRadius();float d=eclipseSeparation();
+ if(d>=1.+r)return 0.;if(d<=abs(1.-r))return min(1.,r*r);
+ float a=acos(clamp((d*d+1.-r*r)/(2.*d),-1.,1.));float b=acos(clamp((d*d+r*r-1.)/(2.*d*r),-1.,1.));
+ float area=a+r*r*b-.5*sqrt(max(0.,(-d+1.+r)*(d+1.-r)*(d-1.+r)*(d+1.+r)));
+ return area/3.14159265;
+}
+float eclipseDaylight(){if(hour<=6.||hour>=18.)return 1.;return mix(1.,max(.025,pow(1.-eclipseCoverage(),.65)),step(.5,eclipse));}
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 // Explicit floor subtraction preserves the interpolation endpoint for tiny negative
 // coordinates. GPU fract() can wrap a rounded 1 back to 0, causing a seam on axis.
@@ -80,18 +95,31 @@ vec3 sky(vec3 rd,vec3 sun,float day,float warm){
  vec3 night=mix(vec3(.025,.028,.075),vec3(.006,.012,.035),pow(h,.5));
  return mix(night,daylight,smoothstep(-.20,.025,sun.y));
 }
-// Crisp angular disc with only a pixel-wide antialiased boundary; no glow or bloom.
-float sunDisc(vec2 screen,vec3 sun){
- // Project into the camera plane so the disc stays circular even near the edge.
+// Project a celestial direction into the camera plane; Z marks front/behind.
+vec3 celestialProjection(vec3 sun){
  float yaw=-look.x;sun.xz=mat2(cos(yaw),-sin(yaw),sin(yaw),cos(yaw))*sun.xz;
  float pitch=-look.y;sun.yz=mat2(cos(pitch),sin(pitch),-sin(pitch),cos(pitch))*sun.yz;
- vec2 center=sun.xy/max(sun.z,.001);float radius=.0093;float aa=.68/resolution.y;
- return (1.-smoothstep(radius-aa,radius+aa,length(screen*.68-center)))*step(.001,sun.z);
+ return sun;
+}
+// Crisp discs with geometric lunar occultation. Corona is visible only in totality.
+// RGB is premultiplied emission, alpha masks the background behind either disc.
+vec4 solarBody(vec2 screen,vec3 sun){
+ vec3 projected=celestialProjection(sun);float radius=celestialRadius();
+ vec2 q=(screen*.68-projected.xy/max(projected.z,.001))/radius;float aa=.68/resolution.y/radius;
+ float r=length(q);float solar=1.-smoothstep(1.-aa,1.+aa,r);
+ float lunar=0.;if(eclipse>.5)lunar=1.-smoothstep(eclipseMoonRadius()-aa,eclipseMoonRadius()+aa,length(q-vec2((eclipseProgress-.5)*4.4,0)));
+ float totality=eclipse<1.5?smoothstep(.995,1.,eclipseCoverage())*step(.5,eclipse):0.;
+ float angle=atan(q.y,q.x);float streamers=.75+.16*cos(angle*3.)+.09*cos(angle*7.);
+ float corona=exp(-max(r-1.,0.)*2.1)*streamers*totality*(1.-solar)*(1.-lunar);
+ vec3 colour=sunlight(sun.y)*3.8*solar*(1.-lunar)+vec3(.21,.24,.30)*corona+vec3(.0006)*lunar*totality;
+ // In partial phases the unlit Moon outside the photosphere blends into the
+ // daylight sky; it must not appear as a floating black ball beside the Sun.
+ return vec4(colour,max(solar*(1.-lunar),lunar*totality))*step(.001,projected.z);
 }
 // Fictional celestial orientation: fixed with respect to the sky, never the camera.
 // Time rotates the stars slowly; forward travel does not translate celestial objects.
 vec3 lunarDirection(){return normalize(vec3(-.30,sin((hour-18.)/12.*3.14159265)*.32,.9));}
-float lunarStrength(){return moon<.5?0.:moon<1.5?.12:moon<2.5?.45:1.;}
+float lunarStrength(){return moon<.5||eclipse>.5?0.:moon<1.5?.12:moon<2.5?.45:1.;}
 // One independently seeded population. Occupancy and brightness vary with galactic
 // structure; multiple populations remove the impression of one evenly spaced grid.
 // Returns filtered radiance; inputs are a unit sky direction and population settings.
@@ -136,10 +164,10 @@ vec3 stars(vec3 direction,float solarElevation){
 }
 // Render a small textured lunar sphere with a geometric phase terminator.
 // Returns RGB and coverage; the entire disc masks background stars, including its dark side.
-vec4 lunarDisc(vec3 rd,float solarElevation){
- if(moon<.5||solarElevation>.035)return vec4(0);
- vec3 direction=lunarDirection();vec3 right=normalize(cross(vec3(0,1,0),direction));vec3 up=cross(direction,right);
- float facing=dot(rd,direction);vec2 q=vec2(dot(rd,right),dot(rd,up))/max(facing,.001)/.0093;
+vec4 lunarDisc(vec2 screen,vec3 rd,float solarElevation){
+ if(moon<.5||solarElevation>.035||eclipse>.5)return vec4(0);
+ vec3 projected=celestialProjection(lunarDirection());float facing=projected.z;
+ vec2 q=(screen*.68-projected.xy/max(facing,.001))/celestialRadius();
  float radius=length(q);float aa=max(length(fwidth(q))*.5,.01);float mask=1.-smoothstep(1.-aa,1.+aa,radius);
  vec3 normal=vec3(q,sqrt(max(0.,1.-dot(q,q))));
  vec3 light=moon<1.5?normalize(vec3(.9,.08,-.55)):moon<2.5?vec3(1,0,0):vec3(0,0,1);
@@ -178,7 +206,7 @@ vec3 land(vec3 p,vec3 rd,vec3 sun,float day,float warm){
  c+=vec3(.014,.020,.033)*moonlight;
  c+=water*pow(max(dot(reflect(rd,vec3(0,1,0)),lunarDirection()),0.),110.)*vec3(.20,.25,.34)*moonlight;
  float shadow=density(vec3(w.x+1100.,1700.,w.y+600.));c*=1.-shadow*.32;
- return c;
+ return c*eclipseDaylight();
 }
 void main(){
  vec2 screen=uv;screen.x*=resolution.x/resolution.y;vec3 rd=normalize(vec3(screen*.68,1.));
@@ -186,8 +214,9 @@ void main(){
  float yaw=look.x;rd.xz=mat2(cos(yaw),-sin(yaw),sin(yaw),cos(yaw))*rd.xz;
  float angle=(hour-6.)/12.*3.14159265;vec3 sun=normalize(vec3(-.65,sin(angle),-cos(angle)*.8));float day=smoothstep(-.18,.12,sun.y);float warm=1.-smoothstep(.12,.65,sun.y);
  vec3 ro=vec3(0,altitude,travel);vec3 col=sky(rd,sun,day,warm);
- col+=stars(rd,sun.y);vec4 lunar=lunarDisc(rd,sun.y);col=mix(col,lunar.rgb,lunar.a);
- col+=sunDisc(screen,sun)*sunlight(sun.y)*3.8;
+ col=mix(vec3(.006,.012,.024),col,pow(eclipseDaylight(),.7));
+ col+=stars(rd,sun.y);vec4 lunar=lunarDisc(screen,rd,sun.y);col=mix(col,lunar.rgb,lunar.a);
+ vec4 solar=solarBody(screen,sun);col=col*(1.-solar.a)+solar.rgb;
  float hit=groundDistance(rd,altitude);float ground=hit<0.?1.e8:hit;
  if(hit>=0.){vec3 p=ro+rd*ground;col=land(p,rd,sun,day,warm);}
  float entry=(1250.-ro.y)/rd.y,exit=(4100.-ro.y)/rd.y;
@@ -212,7 +241,7 @@ void main(){
  ambient*=mix(.6,1.,smoothstep(1550.,2600.,p.y))*(.10+.9*day);
  vec3 direct=sunlight(localSun);
  float silver=pow(max(dot(rd,sun),0.),10.)*exp(-optical*1.2)*.22;
- vec3 shade=ambient+direct*(lighting*.95+silver)*lit;
+ vec3 shade=ambient*sqrt(eclipseDaylight())+direct*(lighting*.95+silver)*lit*eclipseDaylight();
  float moonlight=lunarStrength()*(1.-smoothstep(-.18,-.02,sun.y))*max(lunarDirection().y,0.);
  if(moonlight>.001){float moonFacing=cloudType<.5?clamp((cumulusField(p+lunarDirection()*100.)-distanceToCloud)/100.,0.,1.):.4;shade+=vec3(.07,.09,.14)*moonlight*(.25+.75*moonFacing);}
  fog+=trans*alpha*shade;trans*=1.-alpha;}

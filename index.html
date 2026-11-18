@@ -9,6 +9,9 @@
 <label>Cloud character<select id="cloud"><option value="0">Fair-weather cumulus</option><option value="1">High, feathered cirrus</option><option value="2">Soft layered stratus</option></select></label>
 <label>Time of day <output id="hour-value"></output><input id="hour" type="range" min="0" max="24" step="0.05" value="17.6"></label>
 <label>Moon<select id="moon"><option value="0">Off</option><option value="1">Crescent</option><option value="2">Half</option><option value="3">Full</option></select></label>
+<label>Sun &amp; moon size<select id="celestialScale"><option value="1">True angular size · 0.53°</option><option value="3">Display scale · 3×</option><option value="6">Display scale · 6×</option></select></label>
+<label>Solar eclipse<select id="eclipse"><option value="0">Off</option><option value="1">Total eclipse</option><option value="2">Annular eclipse</option></select></label>
+<label id="eclipse-controls" hidden>Eclipse progress <output id="eclipseProgress-value"></output><input id="eclipseProgress" type="range" min="0" max="100" value="50"></label>
 <label>Rendering<select id="quality"><option value="0.65">Quiet · low footprint</option><option value="0.9">Balanced</option><option value="1.25">Fine detail</option></select></label>
 <div class="actions"><button id="forward">Look forward</button><button id="pause" aria-pressed="false">Pause</button><button id="fullscreen" aria-label="Toggle fullscreen">⛶</button></div>
 </aside>

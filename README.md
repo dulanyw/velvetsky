@@ -28,6 +28,8 @@ Altitude displays feet and reaches 10,000 ft (3,048 m); rendering keeps metre un
 
 Stars emerge progressively through twilight, with varied brightness, warm/cool colours, and reduced visibility toward the horizon. Three independently seeded stellar populations cluster around a tilted Milky Way band with a brighter central bulge, mottled unresolved light, and dark absorbing dust lanes. Moonlight reduces its contrast. The procedural star field is fictional, not a catalogue of real constellations. Moon options are Off (default), Crescent, Half, and Full, with an illustrative nightly arc, textured disc, and subtle cloud/water illumination. Phases are selected artistically rather than calculated from a calendar. Ground and clouds occlude celestial objects. Only functional controls remain on the view; press H to hide them.
 
+Sun and Moon use a shared base angular diameter of approximately 0.53°. The default 6× display scale enlarges them for monitor viewing; 1× and 3× are also available. Solar eclipse mode offers total and annular geometry with a fixed progress slider (50% is central alignment), analytically calculated disc overlap, lighting dimming, and a totality-only corona. Enabling eclipse mode points at the Sun and selects 16:00 if the current time is outside the useful daylight range. This is a local illustrative eclipse, not an ephemeris, moving ground-shadow simulation, or real event prediction.
+
 Run `node tests/server.test.cjs` with the server running. Syntax checks: `node --check src/main.js`, `node --check src/shaders.js`, and `node --check server.cjs`.
 
 ## Current limitations
