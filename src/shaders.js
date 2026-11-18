@@ -34,7 +34,23 @@ float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 // coordinates. GPU fract() can wrap a rounded 1 back to 0, causing a seam on axis.
 float noise(vec2 p){vec2 i=floor(p),f=p-i;f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
 float fbm(vec2 p){return .55*noise(p)+.27*noise(p*2.03)+.13*noise(p*4.07)+.05*noise(p*8.1);}
-float volumeNoise(vec3 p){float z=floor(p.y);return mix(noise(p.xz+z*vec2(37,17)),noise(p.xz+(z+1.)*vec2(37,17)),smoothstep(0.,1.,p.y-z));}
+// Independent integer-hashed 3D corners replace shifted 2D slices, whose shared
+// offsets produced diagonal striations. Quintic interpolation has smooth first
+// and second derivatives. Explicit subtraction retains the axis-seam fix.
+float volumeHash(ivec3 cell){
+ uvec3 v=uvec3(cell);uint h=v.x*1597334677u ^ v.y*3812015801u ^ v.z*2798796415u;
+ h^=h>>16u;h*=2246822519u;h^=h>>13u;h*=3266489917u;h^=h>>16u;
+ return float(h&16777215u)/16777216.;
+}
+float volumeNoise(vec3 p){
+ // Rotate the lattice so its axes do not align with vertical cloud growth.
+ p=mat3(.36,.48,-.80,-.80,.60,0.,.48,.64,.60)*p;
+ vec3 base=floor(p);ivec3 i=ivec3(base);vec3 f=p-base;
+ vec3 blend=f*f*f*(f*(f*6.-15.)+10.);
+ float lower=mix(mix(volumeHash(i),volumeHash(i+ivec3(1,0,0)),blend.x),mix(volumeHash(i+ivec3(0,1,0)),volumeHash(i+ivec3(1,1,0)),blend.x),blend.y);
+ float upper=mix(mix(volumeHash(i+ivec3(0,0,1)),volumeHash(i+ivec3(1,0,1)),blend.x),mix(volumeHash(i+ivec3(0,1,1)),volumeHash(i+ivec3(1,1,1)),blend.x),blend.y);
+ return mix(lower,upper,blend.z);
+}
 // Ellipsoid distance bound in metres. Used for safe empty-space traversal.
 float ellipsoid(vec3 p,vec3 radii){return (length(p/radii)-1.)*min(radii.x,min(radii.y,radii.z));}
 // Smooth union joins cloud lobes into a shared body rather than intersecting balls.
@@ -72,7 +88,7 @@ float cumulusField(vec3 p){
  float bank=max(max(bottom-original.y,original.y-top),(weather-mix(-.3,1.1,joining))*2200.);
  if(cover>.55)field=mergeCloud(field,bank,180.);
  // Small boundary erosion reveals billows without dissolving the silhouette.
- if(field<180.)field+=(volumeNoise(p*.006)-.5)*125.+(volumeNoise(p*.017)-.5)*40.+(volumeNoise(p*.038)-.5)*12.;
+ if(field<180.)field+=(volumeNoise(p*.006)-.5)*125.+(volumeNoise(p.yzx*.017+vec3(17,53,29))-.5)*40.+(volumeNoise(p.zxy*.038+vec3(71,11,43))-.5)*12.;
  return field;
 }
 // Tall convective volumes with a common low base, rising lobes, and a wind-spread
@@ -103,7 +119,7 @@ float stormField(vec3 p){
  field=mergeCloud(field,max(body*scale*.6,1400.-p.y),260.);
  }
  if(cover>.65){float regional=fbm(p.xz*.00017+37.);float holes=(regional-mix(.15,1.1,smoothstep(.65,1.,cover)))*4500.;field=mergeCloud(field,max(max(1400.-p.y,p.y-2450.),holes),200.);}
- if(field<400.)field+=(volumeNoise(p*.0025)-.5)*210.+(volumeNoise(p*.007)-.5)*75.+(volumeNoise(p*.018)-.5)*25.;
+ if(field<400.)field+=(volumeNoise(p*.0025)-.5)*210.+(volumeNoise(p.yzx*.007+vec3(17,53,29))-.5)*75.+(volumeNoise(p.zxy*.018+vec3(71,11,43))-.5)*25.;
  return field;
 }
 #endif
@@ -291,8 +307,13 @@ void main(){
  vec2 interval=cloudInterval(rd,1250.,storm?12500.:4100.,ground);
  float t=interval.x;float end=interval.y;
  float trans=1.;vec3 fog=vec3(0);float d=t;
+ // Fixed per-pixel quadrature offset breaks coherent marching contours without
+ // changing the random seed each frame (which would introduce sparkling).
+ float samplePhase=volumeHash(ivec3(ivec2(gl_FragCoord.xy),719))-.5;
  for(int i=0;i<raySteps;i++){
- if(d>=end||trans<.012)break;vec3 p=cloudPoint(ro,rd,d);
+ if(d>=end||trans<.012)break;
+ float nominalStep=max(shaped?(storm?60.:32.):85.,max(0.,d-18000.)*.014);
+ vec3 p=cloudPoint(ro,rd,clamp(d+samplePhase*nominalStep*.65,t,end));
  float distanceToCloud=shaped?cloudField(p):0.;
  // Coarser distant samples follow projected scale. Nearby billows retain detail;
  // distant silhouettes use footprint filtering instead of disappearing at 28 km.
