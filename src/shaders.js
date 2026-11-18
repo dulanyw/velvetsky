@@ -90,25 +90,47 @@ float sunDisc(vec2 screen,vec3 sun){
 // Time rotates the stars slowly; forward travel does not translate celestial objects.
 vec3 lunarDirection(){return normalize(vec3(-.30,sin((hour-18.)/12.*3.14159265)*.32,.9));}
 float lunarStrength(){return moon<.5?0.:moon<1.5?.12:moon<2.5?.45:1.;}
-// Cube-projected procedural star field avoids polar concentration. Magnitudes vary;
-// bright stars emerge first in twilight and horizon extinction hides low faint stars.
-// Pixel-footprint filtering keeps small points stable without deliberate twinkling.
-vec3 stars(vec3 direction,float solarElevation){
- if(solarElevation>-.02)return vec3(0);
- float turn=hour*.261799388;direction.xz=mat2(cos(turn),-sin(turn),sin(turn),cos(turn))*direction.xz;
+// One independently seeded population. Occupancy and brightness vary with galactic
+// structure; multiple populations remove the impression of one evenly spaced grid.
+// Returns filtered radiance; inputs are a unit sky direction and population settings.
+vec3 starPopulation(vec3 direction,float frequency,float salt,float probability,float strength,float solarElevation){
  vec3 a=abs(direction);vec2 plane;float face;
  if(a.x>a.y&&a.x>a.z){plane=direction.yz/a.x;face=direction.x>0.?1.:2.;}
  else if(a.y>a.z){plane=direction.xz/a.y;face=direction.y>0.?3.:4.;}
  else{plane=direction.xy/a.z;face=direction.z>0.?5.:6.;}
- vec2 grid=plane*110.;vec2 id=floor(grid);float seed=hash(id+face*137.);
- vec2 center=.18+.64*vec2(hash(id+face*31.),hash(id+face*57.));
- float distanceToStar=length(fract(grid)-center);float magnitude=pow(hash(id+face*97.),5.);
- float radius=mix(.045,.14,magnitude);float aa=max(length(fwidth(grid))*.5,.008);
+ vec2 grid=plane*frequency+vec2(salt,salt*.37);vec2 id=floor(grid);float seed=hash(id+face*137.+salt);
+ vec2 center=.05+.90*vec2(hash(id+face*31.+salt),hash(id+face*57.+salt));
+ float distanceToStar=length(fract(grid)-center);float magnitude=pow(hash(id+face*97.+salt),3.);
+ float radius=mix(.065,.19,magnitude);float aa=max(length(fwidth(grid))*.5,.008);
  float point=(1.-smoothstep(max(0.,radius-aa),radius+aa,distanceToStar))*min(1.,radius*radius/(aa*aa));
  float emergence=1.-smoothstep(-.26+ magnitude*.13,-.09+magnitude*.07,solarElevation);
+ vec3 colour=mix(vec3(.66,.79,1.),vec3(1.,.81,.56),hash(id+face*41.+salt));
+ return colour*point*(.10+magnitude*1.8)*step(1.-probability,seed)*emergence*strength;
+}
+// Procedural Milky Way: a great-circle band, brighter central bulge, unresolved
+// star light, and absorbing dust lanes. All structure is continuous on the sphere.
+// This is an illustrative galaxy, not a real-location astronomical sky catalogue.
+vec3 stars(vec3 direction,float solarElevation){
+ if(solarElevation>-.02)return vec3(0);
+ float turn=hour*.261799388;direction.xz=mat2(cos(turn),-sin(turn),sin(turn),cos(turn))*direction.xz;
+ float latitude=dot(direction,normalize(vec3(.58,.72,-.24)));
+ float band=exp(-pow(latitude/.145,2.));
+ float filaments=volumeNoise(direction*32.)*.55+volumeNoise(direction*83.)*.30+volumeNoise(direction*193.)*.15;
+ float broad=volumeNoise(direction*8.+vec3(17,11,41));
+ float core=pow(max(dot(direction,normalize(vec3(-.5,.65,.75))),0.),20.);
+ float lane=latitude+(volumeNoise(direction*16.)-.5)*.075;
+ float dust=exp(-pow(lane/(.016+.026*broad),2.))*(.60+.34*filaments);
+ float clouds=band*(.30+.90*filaments)*(.45+.75*broad);
  float extinction=smoothstep(.005,.22,direction.y);
- vec3 colour=mix(vec3(.68,.79,1.),vec3(1.,.85,.66),hash(id+face*41.));
- return colour*point*(.07+magnitude*1.3)*step(.965,seed)*emergence*extinction*(1.-lunarStrength()*.4);
+ float dark=1.-smoothstep(-.32,-.08,solarElevation);
+ vec3 glow=mix(vec3(.65,.72,.91),vec3(1.,.83,.61),core)*clouds*(.055+core*.095)*(1.-dust*.94);
+ glow+=vec3(.72,.75,.85)*core*.022*exp(-pow(latitude/.25,2.));
+ float clustering=.45+.85*volumeNoise(direction*45.);
+ vec3 points=starPopulation(direction,85.,7.,.045,1.7,solarElevation);
+ points+=starPopulation(direction,210.,39.,(.025+band*.18)*clustering,.85,solarElevation);
+ points+=starPopulation(direction,470.,117.,(.018+band*.27)*clustering,.65,solarElevation);
+ points*=1.-dust*band*.78;
+ return (points+glow*dark)*extinction*(1.-lunarStrength()*.48);
 }
 // Render a small textured lunar sphere with a geometric phase terminator.
 // Returns RGB and coverage; the entire disc masks background stars, including its dark side.
