@@ -1,28 +1,35 @@
 import {vertex, fragment} from './shaders.js';
 
 // Shared scene defaults. Distances are metres; speed is kilometres per hour.
-const config = Object.freeze({fps:30, altitude:850, speed:65, cover:42, hour:17.6, cloud:0, moon:0, celestialScale:6, eclipse:0, eclipseProgress:50, quality:.65});
+const config = Object.freeze({fps:30, raySteps:192, neighborRadius:1, altitude:850, speed:65, cover:42, hour:17.6, cloud:0, moon:0, celestialScale:6, eclipse:0, eclipseProgress:50, quality:.65});
 
 /** Compile one GPU stage. Returns a shader or throws the compiler diagnostic. */
 function compileShader(gl,type,source){const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(shader));return shader;}
+
+/** Compile a cloud-specific program so unused volume models are removed by GLSL.
+ * Returns its program and uniform handles. Caller owns the cache and GPU lifetime. */
+function createCloudProgram(gl,mode){
+ const source=fragment.replace('#version 300 es',`#version 300 es\n#define CLOUD_MODE ${mode}`).replace('cloudType,','').replace('precision highp float;','precision highp float;\nconst float cloudType=float(CLOUD_MODE);');
+ const program=gl.createProgram();const stages=[compileShader(gl,gl.VERTEX_SHADER,vertex),compileShader(gl,gl.FRAGMENT_SHADER,source)];for(const stage of stages)gl.attachShader(program,stage);gl.bindAttribLocation(program,0,'position');gl.linkProgram(program);
+ if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));for(const stage of stages)gl.deleteShader(stage);
+ const uniforms=Object.fromEntries(['raySteps','neighborRadius','resolution','travel','altitude','cover','hour','moon','celestialScale','eclipse','eclipseProgress','look'].map(key=>[key,gl.getUniformLocation(program,key)]));return {program,uniforms};
+}
 
 /** Create the renderer from a canvas; owns GPU resources and reports unsupported WebGL. */
 function createRenderer(canvas){
  const gl=canvas.getContext('webgl2',{antialias:false,alpha:false,powerPreference:'low-power'});
  if(!gl)throw new Error('This view needs WebGL 2. Please enable hardware acceleration in your browser.');
- const program=gl.createProgram();gl.attachShader(program,compileShader(gl,gl.VERTEX_SHADER,vertex));gl.attachShader(program,compileShader(gl,gl.FRAGMENT_SHADER,fragment));gl.linkProgram(program);
- if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));gl.useProgram(program);
+ const initial=createCloudProgram(gl,config.cloud);const program=initial.program;gl.useProgram(program);
  const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
  const location=gl.getAttribLocation(program,'position');gl.enableVertexAttribArray(location);gl.vertexAttribPointer(location,2,gl.FLOAT,false,0,0);
- const uniforms=Object.fromEntries(['resolution','travel','altitude','cover','hour','cloudType','moon','celestialScale','eclipse','eclipseProgress','look'].map(key=>[key,gl.getUniformLocation(program,key)]));
- return {gl,uniforms,canvas};
+ return {gl,canvas,programs:new Map([[config.cloud,initial]])};
 }
 
 /** Resize only when needed. Quality caps pixel cost independently of display scaling. */
 function resizeRenderer(renderer,quality){const {canvas,gl}=renderer;const scale=Math.min(devicePixelRatio,1.5)*quality;const w=Math.round(innerWidth*scale),h=Math.round(innerHeight*scale);if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h);}}
 
 /** Upload a scene snapshot and draw one full-screen procedural frame. */
-function drawScene(renderer,state){const {gl,uniforms:u,canvas}=renderer;resizeRenderer(renderer,state.quality);gl.uniform2f(u.resolution,canvas.width,canvas.height);gl.uniform1f(u.travel,state.travel);gl.uniform1f(u.altitude,state.altitude);gl.uniform1f(u.cover,state.cover/100);gl.uniform1f(u.hour,state.hour);gl.uniform1f(u.cloudType,state.cloud);gl.uniform1f(u.moon,state.moon);gl.uniform1f(u.celestialScale,state.celestialScale);gl.uniform1f(u.eclipse,state.eclipse);gl.uniform1f(u.eclipseProgress,state.eclipseProgress/100);gl.uniform2f(u.look,state.yaw,state.pitch);gl.drawArrays(gl.TRIANGLES,0,3);}
+function drawScene(renderer,state){const {gl,canvas}=renderer;if(!renderer.programs.has(state.cloud))renderer.programs.set(state.cloud,createCloudProgram(gl,state.cloud));const {program,uniforms:u}=renderer.programs.get(state.cloud);gl.useProgram(program);resizeRenderer(renderer,state.quality);gl.uniform1i(u.raySteps,state.raySteps);gl.uniform1i(u.neighborRadius,state.neighborRadius);gl.uniform2f(u.resolution,canvas.width,canvas.height);gl.uniform1f(u.travel,state.travel);gl.uniform1f(u.altitude,state.altitude);gl.uniform1f(u.cover,state.cover/100);gl.uniform1f(u.hour,state.hour);gl.uniform1f(u.moon,state.moon);gl.uniform1f(u.celestialScale,state.celestialScale);gl.uniform1f(u.eclipse,state.eclipse);gl.uniform1f(u.eclipseProgress,state.eclipseProgress/100);gl.uniform2f(u.look,state.yaw,state.pitch);gl.drawArrays(gl.TRIANGLES,0,3);}
 
 /** Bind accessible controls to explicit scene state. Installs DOM event handlers. */
 function bindControls(canvas,state){

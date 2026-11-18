@@ -4,6 +4,7 @@ export const fragment = `#version 300 es
 precision highp float;
 in vec2 uv;out vec4 frag;
 uniform vec2 resolution;uniform float travel,altitude,cover,hour,cloudType,moon,celestialScale,eclipse,eclipseProgress;uniform vec2 look;
+uniform int raySteps,neighborRadius;
 const float EARTH_RADIUS=6371000.;
 const float CELESTIAL_RADIUS=.004625;
 // Shared display radius: the real ~0.53-degree diameter multiplied by UI scale.
@@ -46,7 +47,7 @@ float cumulusField(vec3 p){
  // Broad coherent warping breaks the underlying placement grid into organic banks.
  p.xz+=vec2(noise(p.xz*.00055+19.),noise(p.xz*.00055+83.))*360.-180.;
  vec2 tile=floor(p.xz/2600.);float field=10000.;
- for(int x=-1;x<=1;x++)for(int z=-1;z<=1;z++){
+ for(int x=-neighborRadius;x<=neighborRadius;x++)for(int z=-neighborRadius;z<=neighborRadius;z++){
  vec2 id=tile+vec2(float(x),float(z));float seed=hash(id+17.);
  float growth=smoothstep(seed*.76,seed*.76+.24,cover);
  if(growth<.001)continue;
@@ -77,34 +78,43 @@ float cumulusField(vec3 p){
 // Tall convective volumes with a common low base, rising lobes, and a wind-spread
 // anvil. Returns a conservative metre-distance bound for adaptive traversal.
 // Coverage changes storm occupancy and spread; shape remains world anchored.
+#if CLOUD_MODE == 3
 float stormField(vec3 p){
  if(cover<.001)return 10000.;vec2 tile=floor(p.xz/9500.);float field=20000.;
- for(int x=-1;x<=1;x++)for(int z=-1;z<=1;z++){
+ for(int x=-neighborRadius;x<=neighborRadius;x++)for(int z=-neighborRadius;z<=neighborRadius;z++){
  vec2 id=tile+vec2(float(x),float(z));float seed=hash(id+61.);
  float growth=smoothstep(seed*.7,seed*.7+.3,cover);if(growth<.001)continue;
  vec2 center=(id+.5)*9500.+(vec2(hash(id+13.),hash(id+29.))-.5)*2600.;
  float scale=(.8+hash(id+23.)*.35)*pow(growth,.3);
  vec3 q=(p-vec3(center.x,1500.,center.y))/scale;
  float turn=seed*6.28318;q.xz=mat2(cos(turn),-sin(turn),sin(turn),cos(turn))*q.xz;
- q.xz/=mix(.75,1.45,cover);
+ q.xz/=mix(1.05,1.4,cover);
  q.x+=sin(q.y*.00045+seed*4.)*240.;q.z+=sin(q.y*.00035+seed*7.)*180.;
  float height=6000.+hash(id+19.)*2500.;
- float body=ellipsoid(q-vec3(0,650,0),vec3(2300,1000,1850));
- body=mergeCloud(body,ellipsoid(q-vec3(-250,height*.38,50),vec3(1600,height*.39,1450)),400.);
- body=mergeCloud(body,ellipsoid(q-vec3(200,height*.67,-100),vec3(1350,height*.31,1250)),320.);
- body=mergeCloud(body,ellipsoid(q-vec3(-650,height*.84,120),vec3(1050,1400,1000)),220.);
- body=mergeCloud(body,ellipsoid(q-vec3(500,height*.92,80),vec3(1250,1100,1150)),260.);
- // Upper flow stretches the summit sideways into the distinctive anvil shelf.
- body=mergeCloud(body,ellipsoid(q-vec3(1450,height*.97,100),vec3(3650,550,2350)),250.);
- body=mergeCloud(body,ellipsoid(q-vec3(3450,height*.99,100),vec3(1700,330,1850)),180.);
+ float body=ellipsoid(q-vec3(0,900,0),vec3(3200,1350,2550));
+ body=mergeCloud(body,ellipsoid(q-vec3(-650,height*.35,200),vec3(2800,height*.38,2200)),550.);
+ body=mergeCloud(body,ellipsoid(q-vec3(200,height*.64,-300),vec3(2300,height*.34,2000)),450.);
+ body=mergeCloud(body,ellipsoid(q-vec3(-1700,height*.52,450),vec3(1550,1900,1500)),320.);
+ body=mergeCloud(body,ellipsoid(q-vec3(1550,height*.69,200),vec3(1500,1800,1450)),320.);
+ body=mergeCloud(body,ellipsoid(q-vec3(-450,height*.91,100),vec3(1550,1300,1500)),320.);
+ // A thick, asymmetric canopy grows out of the upper mass rather than a T-bar.
+ body=mergeCloud(body,ellipsoid(q-vec3(1000,height*.86,50),vec3(3700,1100,2700)),500.);
+ body=mergeCloud(body,ellipsoid(q-vec3(3100,height*.92,100),vec3(2450,650,2250)),350.);
  field=mergeCloud(field,max(body*scale*.6,1400.-p.y),260.);
  }
  if(cover>.65){float regional=fbm(p.xz*.00017+37.);float holes=(regional-mix(.15,1.1,smoothstep(.65,1.,cover)))*4500.;field=mergeCloud(field,max(max(1400.-p.y,p.y-2450.),holes),200.);}
  if(field<400.)field+=(volumeNoise(p*.0025)-.5)*210.+(volumeNoise(p*.007)-.5)*75.+(volumeNoise(p*.018)-.5)*25.;
  return field;
 }
+#endif
 // Common field dispatch keeps traversal, density, and light sampling consistent.
-float cloudField(vec3 p){return cloudType>2.5?stormField(p):cumulusField(p);}
+float cloudField(vec3 p){
+#if CLOUD_MODE == 3
+ return min(stormField(p),cumulusField(p));
+#else
+ return cumulusField(p);
+#endif
+}
 float density(vec3 p){
  if(cloudType<.5||cloudType>2.5)return (1.-smoothstep(-45.,18.,cloudField(p)));
  vec2 q=p.xz*.0007;float base=fbm(q*.43);float shape=volumeNoise(p*.0012)*.7+volumeNoise(p*.003)*.2+volumeNoise(p*.008)*.1;
@@ -224,6 +234,25 @@ float groundDistance(vec3 rd,float height){
  float discriminant=b*b-c;if(b>=0.||discriminant<0.)return -1.;
  return c/(-b+sqrt(discriminant));
 }
+// Intersect the curved cloud shell in the same local planet frame as the ground.
+// Returns start/end ray distances, or an empty interval. No arbitrary nearby wall.
+vec2 cloudInterval(vec3 rd,float low,float high,float ground){
+ float b=(EARTH_RADIUS+altitude)*rd.y;
+ float outerC=(altitude-high)*(2.*EARTH_RADIUS+altitude+high);
+ float outerD=b*b-outerC;if(outerD<0.)return vec2(0);
+ float first=max(0.,-b-sqrt(outerD));float last=min(ground,-b+sqrt(outerD));
+ float innerC=(altitude-low)*(2.*EARTH_RADIUS+altitude+low);float innerD=b*b-innerC;
+ if(innerD>=0.){float root=sqrt(innerD);if(innerC<0.)first=max(first,-b+root);else if(-b-root>first)last=min(last,-b-root);}
+ return vec2(first,max(first,last));
+}
+// Stable radial height: follows planetary curvature without subtracting two
+// Earth-sized floats. Horizontal coordinates stay anchored to procedural terrain.
+vec3 cloudPoint(vec3 ro,vec3 rd,float distance){
+ vec3 local=vec3(0,altitude,0)+rd*distance;
+ float horizontal=dot(local.xz,local.xz);float vertical=EARTH_RADIUS+local.y;
+ float height=local.y+horizontal/(sqrt(vertical*vertical+horizontal)+vertical);
+ return vec3(local.x,height,local.z+ro.z);
+}
 vec3 land(vec3 p,vec3 rd,vec3 sun,float day,float warm){
  vec2 w=p.xz;float footprint=length(fwidth(w));vec2 cell=floor(w/680.);vec2 f=fract(w/680.);float seed=hash(cell);float product=hash(cell+45.);
  vec3 a=vec3(.24,.29,.105),b=vec3(.49,.40,.18);vec3 c=mix(a,b,product);
@@ -259,15 +288,19 @@ void main(){
  float hit=groundDistance(rd,altitude);float ground=hit<0.?1.e8:hit;
  if(hit>=0.){vec3 p=ro+rd*ground;col=land(p,rd,sun,day,warm);}
  bool storm=cloudType>2.5;bool shaped=cloudType<.5||storm;
- float entry=(1250.-ro.y)/rd.y,exit=((storm?12500.:4100.)-ro.y)/rd.y;
- float t=max(0.,min(entry,exit));float end=min(min(ground,28000.),max(entry,exit));float stride=max(1.,(end-t)/72.);
+ vec2 interval=cloudInterval(rd,1250.,storm?12500.:4100.,ground);
+ float t=interval.x;float end=interval.y;
  float trans=1.;vec3 fog=vec3(0);float d=t;
- for(int i=0;i<128;i++){
- if(d>end||trans<.012)break;vec3 p=ro+rd*d;
+ for(int i=0;i<raySteps;i++){
+ if(d>=end||trans<.012)break;vec3 p=cloudPoint(ro,rd,d);
  float distanceToCloud=shaped?cloudField(p):0.;
- if(shaped&&distanceToCloud>35.){d+=clamp(distanceToCloud*.55,35.,storm?1100.:700.);continue;}
- float stepLength=shaped?(storm?60.:32.):stride;
- float den=shaped?(1.-smoothstep(-45.,18.,distanceToCloud)):density(p);
+ // Coarser distant samples follow projected scale. Nearby billows retain detail;
+ // distant silhouettes use footprint filtering instead of disappearing at 28 km.
+ float farStep=max(0.,d-18000.)*.035;
+ if(shaped&&distanceToCloud>max(35.,farStep*.15)){d+=clamp(distanceToCloud*.55,max(35.,farStep*.35),max(storm?1100.:700.,farStep));continue;}
+ float stepLength=max(shaped?(storm?60.:32.):85.,farStep*.4);
+ float softness=max(18.,d*.0012);
+ float den=shaped?(1.-smoothstep(-45.-softness*.3,softness,distanceToCloud)):density(p);
  if(den>.001){
  float lightScale=storm?2.5:1.;
  float optical=density(p+sun*90.*lightScale)*.65+density(p+sun*220.*lightScale)*.9+density(p+sun*460.*lightScale)*.65;
