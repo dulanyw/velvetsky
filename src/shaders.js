@@ -8,7 +8,32 @@ float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
 float fbm(vec2 p){return .55*noise(p)+.27*noise(p*2.03)+.13*noise(p*4.07)+.05*noise(p*8.1);}
 float volumeNoise(vec3 p){float z=floor(p.y);return mix(noise(p.xz+z*vec2(37,17)),noise(p.xz+(z+1.)*vec2(37,17)),smoothstep(0.,1.,fract(p.y)));}
+// Ellipsoid distance bound in metres. Used for safe empty-space traversal.
+float ellipsoid(vec3 p,vec3 radii){return (length(p/radii)-1.)*min(radii.x,min(radii.y,radii.z));}
+// World-anchored cumulus clusters: broad flat bases and overlapping rising lobes.
+// Returns signed distance in metres; coverage controls occupancy and cluster size.
+float cumulusField(vec3 p){
+ vec2 tile=floor(p.xz/2600.);float field=10000.;
+ for(int x=-1;x<=1;x++)for(int z=-1;z<=1;z++){
+ vec2 id=tile+vec2(float(x),float(z));float seed=hash(id+17.);
+ if(seed>cover*.92||cover<.001)continue;
+ vec2 center=(id+.5)*2600.+vec2(hash(id+31.),hash(id+73.))*600.-300.;
+ float scale=.8+hash(id+9.)*.55;vec3 q=(p-vec3(center.x,1800.,center.y))/scale;
+ float rotation=seed*6.28318;q.xz=mat2(cos(rotation),-sin(rotation),sin(rotation),cos(rotation))*q.xz;
+ q.x/=.8+hash(id+5.)*.6;q.y/=.7+hash(id+6.)*.65;
+ float body=ellipsoid(q-vec3(0,30,0),vec3(640,210,470));
+ body=min(body,ellipsoid(q-vec3(-270,190,20),vec3(330,350,310)));
+ body=min(body,ellipsoid(q-vec3(160,310,10),vec3(390,430,350)));
+ body=min(body,ellipsoid(q-vec3(440,130,-50),vec3(280,290,280)));
+ body=min(body,ellipsoid(q-vec3(30,180,280),vec3(300,300,280)));
+ body=max(body,1600.-p.y);field=min(field,body*scale);
+ }
+ // Small boundary erosion reveals billows without dissolving the silhouette.
+ if(field<180.)field+=(volumeNoise(p*.006)-.5)*125.+(volumeNoise(p*.017)-.5)*40.+(volumeNoise(p*.038)-.5)*12.;
+ return field;
+}
 float density(vec3 p){
+ if(cloudType<.5)return (1.-smoothstep(-45.,18.,cumulusField(p)));
  vec2 q=p.xz*.0007;float base=fbm(q*.43);float shape=volumeNoise(p*.0012)*.7+volumeNoise(p*.003)*.2+volumeNoise(p*.008)*.1;
  float bottom=1400.+base*350.;float height=cloudType<.5?850.:cloudType<1.5?250.:380.;
  if(cloudType>.5&&cloudType<1.5){bottom=3300.;shape=fbm(vec2(q.x*.45+q.y*2.,q.y*7.));}
@@ -47,15 +72,26 @@ void main(){
  vec3 ro=vec3(0,altitude,travel);vec3 col=sky(rd,sun,day,warm);float ground=60000.;
  if(rd.y<-.001){ground=-ro.y/rd.y;vec3 p=ro+rd*ground;col=land(p,rd,sun,day,warm);}
  float entry=(1250.-ro.y)/rd.y,exit=(4100.-ro.y)/rd.y;
- float t=max(0.,min(entry,exit));float end=min(min(ground,28000.),max(entry,exit));float stride=max(1.,(end-t)/48.);
- float trans=1.;vec3 fog=vec3(0);for(int i=0;i<48;i++){
- float d=t+(float(i)+.2+.6*hash(gl_FragCoord.xy))*stride;if(d>end)break;vec3 p=ro+rd*d;if(p.y<1200.||p.y>4100.)continue;
- float den=density(p);float alpha=1.-exp(-den*stride*.0017);float lighting=clamp(1.-density(p+sun*230.)*.65,.3,1.);
- vec3 shade=mix(vec3(.38,.43,.48),vec3(1.,.91,.75),lighting);shade=mix(shade,shade*vec3(1.10,.77,.55),warm*.45);shade*=.17+.83*day;
- shade=mix(shade,sky(rd,sun,day,warm),1.-exp(-d*.000035));fog+=trans*alpha*shade;trans*=1.-alpha;if(trans<.025)break;}
+ float t=max(0.,min(entry,exit));float end=min(min(ground,28000.),max(entry,exit));float stride=max(1.,(end-t)/72.);
+ float trans=1.;vec3 fog=vec3(0);float d=t;
+ for(int i=0;i<128;i++){
+ if(d>end||trans<.012)break;vec3 p=ro+rd*d;
+ float distanceToCloud=cloudType<.5?cumulusField(p):0.;
+ if(cloudType<.5&&distanceToCloud>35.){d+=clamp(distanceToCloud*.85,35.,900.);continue;}
+ float stepLength=cloudType<.5?32.:stride;
+ float den=cloudType<.5?(1.-smoothstep(-45.,18.,distanceToCloud)):density(p);
+ if(den>.001){
+ float optical=density(p+sun*90.)*.65+density(p+sun*220.)*.9+density(p+sun*460.)*.65;
+ float surfaceLight=cloudType<.5?clamp((cumulusField(p+sun*80.)-distanceToCloud)/80.,0.,1.):.5;
+ float lighting=exp(-optical*.8)*.55+surfaceLight*.45;
+ float alpha=1.-exp(-den*stepLength*.012);
+ vec3 ambient=mix(vec3(.29,.36,.45),vec3(.43,.48,.55),smoothstep(1550.,2400.,p.y));
+ vec3 direct=mix(vec3(1.04,1.03,.99),vec3(1.17,.88,.59),warm*.65);
+ vec3 shade=(ambient+direct*lighting*.85)*(.12+.88*day);
+ shade=mix(shade,sky(rd,sun,day,warm),1.-exp(-d*.000025));fog+=trans*alpha*shade;trans*=1.-alpha;}
+ d+=stepLength;}
  col=col*trans+fog;
  // The suspension lines remain outside the forward hemisphere.
  float side=abs(look.x);if(side>1.52){float cable=abs(uv.x-(sign(look.x)*.74+uv.y*.12));float line=1.-smoothstep(.001,.004,cable);col=mix(col,vec3(.07,.08,.075),line*smoothstep(1.52,1.9,side));}
  col=col/(col+vec3(.38))*1.16;col=pow(max(col,0.),vec3(.94));float vignette=1.-.1*dot(uv,uv);frag=vec4(col*vignette,1.);
 }`;
-
