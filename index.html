@@ -12,7 +12,8 @@
 <label>Sun &amp; moon size<select id="celestialScale"><option value="1">True angular size · 0.53°</option><option value="3">Display scale · 3×</option><option value="6">Display scale · 6×</option></select></label>
 <label>Solar eclipse<select id="eclipse"><option value="0">Off</option><option value="1">Total eclipse</option><option value="2">Annular eclipse</option></select></label>
 <label id="eclipse-controls" hidden>Eclipse progress <output id="eclipseProgress-value"></output><input id="eclipseProgress" type="range" min="0" max="100" value="50"></label>
-<label>Rendering <output id="performance-value" aria-live="off"></output><select id="quality"><option value="0">Auto · prioritize smoothness</option><option value="0.65">Quiet · low footprint</option><option value="0.9">Balanced</option><option value="1.25">Fine detail</option></select></label>
+<label>Motion &amp; power<select id="powerMode"><option value="1">Power saving · 30 FPS</option><option value="0">Smooth · display refresh</option></select></label>
+<label>Rendering <output id="performance-value" aria-live="off"></output><select id="quality" title="Power saving caps all resolution options to reduce GPU work."><option value="0">Auto resolution</option><option value="0.65">Reduced resolution</option><option value="0.9">Balanced</option><option value="1.25">Fine detail</option></select></label>
 <div class="actions"><button id="forward">Look forward</button><button id="pause" aria-pressed="false">Pause</button><button id="fullscreen" aria-label="Toggle fullscreen">⛶</button></div>
 </aside>
 <div id="error" role="alert" hidden></div><script type="module" src="src/main.js"></script></body></html>

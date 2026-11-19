@@ -17,3 +17,18 @@ test('automatic resolution settles under load and avoids rapid oscillation',asyn
  adaptive=tuneResolution(adaptive,16.7,5);assert.ok(adaptive.scale>settled);
  for(let n=0;n<300;n++)adaptive=tuneResolution(adaptive,16.7,5);assert.equal(adaptive.scale,p.maxScale);
 });
+
+test('30 FPS deadlines remain stable across display refresh rates and jitter',async()=>{
+ const {frameSlot}=await import('../src/performance.js');
+ for(const hz of [60,120,144]){let next=null,count=0;for(let n=0;n<hz*10;n++){const now=n*1000/hz+Math.sin(n)*.15;const slot=frameSlot(now,next,30);next=slot.nextDue;if(slot.due)count++;}assert.ok(Math.abs(count-300)<=1,`${hz} Hz: ${count}`);}
+ assert.equal(frameSlot(1,null,0).due,true);
+ const late=frameSlot(1000,100,30);assert.ok(late.nextDue>1000);assert.ok(late.nextDue<=1034);
+});
+
+test('intentional 30 FPS is not mistaken for overload',async()=>{
+ const {tuneResolution}=await import('../src/performance.js');let state={scale:.65,slowWindows:0,fastWindows:0};
+ for(let n=0;n<10;n++)state=tuneResolution(state,1000/30,20,1000/30);
+ assert.equal(state.scale,.65);
+ for(let n=0;n<2;n++)state=tuneResolution(state,60,45,1000/30);
+ assert.ok(state.scale<.65);
+});

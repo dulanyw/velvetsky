@@ -322,7 +322,11 @@ void main(){
  for(int i=0;i<raySteps;i++){
  if(d>=end||trans<.012)break;
  float nearStep=shaped?mix(storm?8.:4.,storm?60.:32.,smoothstep(200.,4500.,d)):85.;
+#if POWER_SAVING
+ float nominalStep=max(nearStep*1.35,max(0.,d-18000.)*.02);
+#else
  float nominalStep=max(nearStep,max(0.,d-18000.)*.014);
+#endif
  vec3 p=cloudPoint(ro,rd,clamp(d+samplePhase*nominalStep*mix(.25,.65,smoothstep(500.,4500.,d)),t,end));
  float distanceToCloud=shaped?cloudField(p):0.;
  // Coarser distant samples follow projected scale. Nearby billows retain detail;
@@ -333,9 +337,17 @@ void main(){
  float den=shaped?shapedDensity(p,distanceToCloud):density(p);
  if(den>.001){
  float lightScale=storm?2.5:1.;
- float optical=density(p+sun*90.*lightScale)*.65+density(p+sun*220.*lightScale)*.9+density(p+sun*460.*lightScale)*.65;
  float probe=mix(18.,80.,smoothstep(250.,4500.,d))*lightScale;
+#if POWER_SAVING
+ vec3 probePosition=p+sun*probe;
+ float probeField=shaped?cloudField(probePosition):0.;
+ float nearDensity=shaped?shapedDensity(probePosition,probeField):density(probePosition);
+ float optical=nearDensity*.8+density(p+sun*460.*lightScale)*1.5;
+ float surfaceLight=shaped?clamp((probeField-distanceToCloud)/probe,0.,1.):.5;
+#else
+ float optical=density(p+sun*90.*lightScale)*.65+density(p+sun*220.*lightScale)*.9+density(p+sun*460.*lightScale)*.65;
  float surfaceLight=shaped?clamp((cloudField(p+sun*probe)-distanceToCloud)/probe,0.,1.):.5;
+#endif
  float lighting=exp(-optical*.8)*.55+surfaceLight*.45;
  float alpha=1.-exp(-den*stepLength*.020);
  // Elevated clouds retain direct light after the ground has entered twilight.
