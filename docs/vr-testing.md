@@ -34,7 +34,7 @@ adaptive VR performance policy and Steam Frame browser validation come later.
 4. The workflow runs unit/package checks and packages only index.html, src/ and
    .nojekyll into dist/. It uploads that artifact and deploys it to Pages.
 5. Use the HTTPS URL reported by the deployment, including the repository subpath
-   and trailing slash. Example: https://USERNAME.github.io/velvet-sky/.
+   and trailing slash. Example: https://USERNAME.github.io/velvetsky/.
 
 All paths are relative. No packages, API keys, application backend, service worker
 or external assets are required. Node runs during local development and packaging,
