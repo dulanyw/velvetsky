@@ -31,4 +31,4 @@ VR uses headset pose, with no eye tracking or floating settings panel. Wrist con
 
 Share bugs and suggestions through [GitHub Issues](https://github.com/dulanyw/velvetsky/issues). For visual or performance problems, include your browser, device/headset, scene settings, and a screenshot or short recording if possible.
 
-No license has been specified yet.
+Licensed under the [MIT License](LICENSE).
