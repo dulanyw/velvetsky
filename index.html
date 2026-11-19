@@ -15,5 +15,6 @@
 <label id="eclipse-controls" hidden>Eclipse progress <output id="eclipseProgress-value"></output><input id="eclipseProgress" type="range" min="0" max="100" value="50"></label>
 <label>Rendering <output id="performance-value" aria-live="off"></output><select id="rendering"><option value="-1">Power saving · 30 FPS</option><option value="0">Smooth · auto resolution</option><option value="0.65">Smooth · reduced resolution</option><option value="0.9">Smooth · balanced</option><option value="1.25">Smooth · fine detail</option></select></label>
 <div class="actions"><button id="forward">Look forward</button><button id="pause" aria-pressed="false">Pause</button><button id="fullscreen" aria-label="Toggle fullscreen">⛶</button></div>
+<div class="vr-actions"><button id="enter-vr" disabled>Checking VR…</button><p id="vr-status" role="status"></p></div>
 </aside>
 <div id="error" role="alert" hidden></div><script type="module" src="src/main.js"></script></body></html>

@@ -1,3 +1,4 @@
+import {createXRController} from './xr.js';
 import {vertex, fragment} from './shaders.js';
 import {performancePolicy,powerPolicy,frameSlot,advanceHour,travelDelta,tuneResolution} from './performance.js';
 
@@ -13,7 +14,7 @@ function createCloudProgram(gl,mode,powerMode){
  const source=fragment.replace('#version 300 es',`#version 300 es\n#define CLOUD_MODE ${mode}\n#define POWER_SAVING ${powerMode}`).replace('cloudType,','').replace('precision highp float;','precision highp float;\nconst float cloudType=float(CLOUD_MODE);');
  const program=gl.createProgram();const stages=[compileShader(gl,gl.VERTEX_SHADER,vertex),compileShader(gl,gl.FRAGMENT_SHADER,source)];for(const stage of stages)gl.attachShader(program,stage);gl.bindAttribLocation(program,0,'position');gl.linkProgram(program);
  if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));for(const stage of stages)gl.deleteShader(stage);
- const uniforms=Object.fromEntries(['debugTraversal','raySteps','neighborRadius','resolution','travel','altitude','cover','hour','moon','celestialScale','eclipse','eclipseProgress','look'].map(key=>[key,gl.getUniformLocation(program,key)]));return {program,uniforms};
+ const uniforms=Object.fromEntries(['xrMode','xrProjection','xrRotation','eyeOffset','viewportOrigin','debugTraversal','raySteps','neighborRadius','resolution','travel','altitude','cover','hour','moon','celestialScale','eclipse','eclipseProgress','look'].map(key=>[key,gl.getUniformLocation(program,key)]));return {program,uniforms};
 }
 
 /** Create the renderer from a canvas; owns GPU resources and reports unsupported WebGL. */
@@ -37,8 +38,22 @@ function submitFrame(renderer){const {gl,timer,queries}=renderer;pollGpuTimers(r
 /** Resize only when needed. Quality caps pixel cost independently of display scaling. */
 function resizeRenderer(renderer,quality,maxPixelRatio=1.5){const {canvas,gl}=renderer;const scale=Math.min(devicePixelRatio,maxPixelRatio)*quality;const w=Math.round(innerWidth*scale),h=Math.round(innerHeight*scale);if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h);}}
 
-/** Upload a scene snapshot and draw one full-screen procedural frame. */
-function drawScene(renderer,state){const {gl,canvas}=renderer;const key=`${state.cloud}:${state.powerMode}`;const compiled=renderer.warmup||!renderer.programs.has(key);renderer.warmup=false;if(!renderer.programs.has(key))renderer.programs.set(key,createCloudProgram(gl,state.cloud,state.powerMode));const {program,uniforms:u}=renderer.programs.get(key);gl.useProgram(program);const quality=state.quality||state.autoScale;resizeRenderer(renderer,state.powerMode?Math.min(quality,powerPolicy.maxScale):quality,state.powerMode?powerPolicy.maxPixelRatio:1.5);gl.uniform1f(u.debugTraversal,state.debugTraversal);gl.uniform1i(u.raySteps,state.powerMode?powerPolicy.raySteps:state.raySteps);gl.uniform1i(u.neighborRadius,state.neighborRadius);gl.uniform2f(u.resolution,canvas.width,canvas.height);gl.uniform1f(u.travel,state.travel);gl.uniform1f(u.altitude,state.altitude);gl.uniform1f(u.cover,state.cover/100);gl.uniform1f(u.hour,state.hour);gl.uniform1f(u.moon,state.moon);gl.uniform1f(u.celestialScale,state.celestialScale);gl.uniform1f(u.eclipse,state.eclipse);gl.uniform1f(u.eclipseProgress,state.eclipseProgress/100);gl.uniform2f(u.look,state.yaw,state.pitch);submitFrame(renderer);return compiled;}
+/** Prepare a cached cloud variant without submitting a frame. Returns stable
+ * handles without per-frame allocation; also warms the variant before VR entry. */
+function prepareScene(renderer,state){const key=`${state.cloud}:${state.powerMode}`;if(!renderer.programs.has(key))renderer.programs.set(key,createCloudProgram(renderer.gl,state.cloud,state.powerMode));return renderer.programs.get(key);}
+
+/** Draw a desktop frame or one XR eye. XR owns framebuffer, viewport and render
+ * size; desktop owns canvas resizing. Both upload the same frozen scene fields. */
+function drawScene(renderer,state,camera=null,viewport=null){
+ const {gl,canvas}=renderer;const compiled=renderer.warmup||!renderer.programs.has(`${state.cloud}:${state.powerMode}`);renderer.warmup=false;const {program,uniforms:u}=prepareScene(renderer,state);gl.useProgram(program);
+ if(!camera){gl.bindFramebuffer(gl.FRAMEBUFFER,null);const quality=state.quality||state.autoScale;resizeRenderer(renderer,state.powerMode?Math.min(quality,powerPolicy.maxScale):quality,state.powerMode?powerPolicy.maxPixelRatio:1.5);gl.viewport(0,0,canvas.width,canvas.height);}
+ gl.uniform1f(u.xrMode,camera?1:0);gl.uniform2f(u.viewportOrigin,viewport?.x||0,viewport?.y||0);
+ if(camera){gl.uniform4fv(u.xrProjection,camera.projection);gl.uniformMatrix3fv(u.xrRotation,false,camera.rotation);gl.uniform3fv(u.eyeOffset,camera.offset);}
+ gl.uniform1f(u.debugTraversal,state.debugTraversal);gl.uniform1i(u.raySteps,state.powerMode?powerPolicy.raySteps:state.raySteps);gl.uniform1i(u.neighborRadius,state.neighborRadius);
+ gl.uniform2f(u.resolution,viewport?.width||canvas.width,viewport?.height||canvas.height);
+ gl.uniform1f(u.travel,state.travel);gl.uniform1f(u.altitude,state.altitude);gl.uniform1f(u.cover,state.cover/100);gl.uniform1f(u.hour,state.hour);gl.uniform1f(u.moon,state.moon);gl.uniform1f(u.celestialScale,state.celestialScale);gl.uniform1f(u.eclipse,state.eclipse);gl.uniform1f(u.eclipseProgress,state.eclipseProgress/100);gl.uniform2f(u.look,state.yaw,state.pitch);
+ if(camera)gl.drawArrays(gl.TRIANGLES,0,3);else submitFrame(renderer);return compiled;
+}
 
 /** Wake an idle renderer after a scene change; schedules at most one callback. */
 function invalidate(state){state.wake?.();}
@@ -78,11 +93,11 @@ function startFlight(renderer,state){
  let last=null,nextDue=null,pending=null,windowStart=0,frames=0,ignoreUntil=0,previousMode=state.powerMode;
  let adaptive={scale:performancePolicy.initialScale,slowWindows:0,fastWindows:0};
  const output=document.getElementById('performance-value');
- const wake=()=>{if(pending===null&&!document.hidden)pending=requestAnimationFrame(frame);};state.wake=wake;
+ const wake=()=>{if(pending===null&&!document.hidden&&!state.xrActive)pending=requestAnimationFrame(frame);};state.wake=wake;
  window.addEventListener('resize',()=>invalidate(state));
  document.addEventListener('visibilitychange',()=>{if(pending!==null)cancelAnimationFrame(pending);pending=null;last=null;nextDue=null;windowStart=0;frames=0;if(!document.hidden)invalidate(state);});
  function frame(now){
-  pending=null;if(document.hidden)return;
+  pending=null;if(document.hidden||state.xrActive)return;
   if(previousMode!==state.powerMode){previousMode=state.powerMode;nextDue=null;windowStart=0;frames=0;renderer.gpuMs=null;adaptive={scale:state.powerMode?Math.min(adaptive.scale,powerPolicy.maxScale):adaptive.scale,slowWindows:0,fastWindows:0};}
   const elapsed=last===null?0:now-last;last=now;
   state.travel+=travelDelta(elapsed,state.speed,state.paused,false);
@@ -106,8 +121,9 @@ function startFlight(renderer,state){
   if(moving)wake();else{last=null;windowStart=0;frames=0;output.value=state.paused?'Paused':'Still';}
  }
  wake();
+ return {suspend(){state.xrActive=true;if(pending!==null)cancelAnimationFrame(pending);pending=null;last=null;nextDue=null;windowStart=0;frames=0;},resume(){state.xrActive=false;last=null;nextDue=null;windowStart=0;frames=0;renderer.gpuMs=null;wake();}};
 }
 
 /** Orchestrate initialization; surface any rendering failure as readable UI. */
-function main(){try{const canvas=document.getElementById('sky');const state={...config,debugTraversal:new URLSearchParams(location.search).has('cloudDebug')?1:0,autoScale:performancePolicy.initialScale,travel:0,yaw:0,pitch:.12,paused:false};const renderer=createRenderer(canvas);bindControls(canvas,state);startFlight(renderer,state);canvas.addEventListener('webglcontextlost',event=>{event.preventDefault();const box=document.getElementById('error');box.hidden=false;box.textContent='The graphics context was interrupted. Reload to resume your flight.';});}catch(error){const box=document.getElementById('error');box.hidden=false;box.textContent=error.message;console.error(error);}}
+function main(){try{const canvas=document.getElementById('sky');const state={...config,debugTraversal:new URLSearchParams(location.search).has('cloudDebug')?1:0,autoScale:performancePolicy.initialScale,travel:0,yaw:0,pitch:.12,paused:false};const renderer=createRenderer(canvas);bindControls(canvas,state);const flight=startFlight(renderer,state);const xr=createXRController({gl:renderer.gl,state,button:document.getElementById('enter-vr'),status:document.getElementById('vr-status'),prepare:snapshot=>prepareScene(renderer,snapshot),renderEye:(snapshot,camera,viewport)=>drawScene(renderer,snapshot,camera,viewport),onEnter(){flight.suspend();document.body.classList.add('in-vr');},onExit(){document.body.classList.remove('in-vr');flight.resume();}});void xr.initialize();canvas.addEventListener('webglcontextlost',event=>{event.preventDefault();void xr.exit();const box=document.getElementById('error');box.hidden=false;box.textContent='The graphics context was interrupted. Reload to resume your flight.';});}catch(error){const box=document.getElementById('error');box.hidden=false;box.textContent=error.message;console.error(error);}}
 main();

@@ -12,7 +12,7 @@ A quiet, browser-only flight viewpiece, designed for a second screen.
 - Flying apparatus mostly behind the viewer, becoming visible toward the sides.
 - No audio by default.
 - Dark, collapsible controls; immersive default view.
-- Plan camera and rendering boundaries for future WebXR support; VR is a later milestone.
+- Stationary WebXR preview with stereo cameras; wrist controls and immersive flight are later milestones.
 
 ## Implementation direction
 Use a procedural WebGL scene with explicit camera, scene, rendering, and controls modules. Begin with a conservative rendering resolution and quality budget. Prefer convincing light, atmospheric depth, and stable motion over dense geometry. Terrain generation must be deterministic and continuous during travel.
@@ -40,5 +40,24 @@ Run `node tests/performance.test.cjs` for refresh-independent movement and adapt
 
 Ground uses 1.6 km agricultural sections subdivided into whole, half, or quarter parcels, with muted late-summer crop colours, thin section roads, broad crop variation, wooded patches, and vegetated irregular lake banks. All are procedural surface colours on the existing sphere: no added geometry, terrain marching, texture downloads, or cloud queries. Ground noise evaluation count is unchanged; crop-row sine stripes were removed. Footprint filtering suppresses subpixel field boundaries, roads, and roofs, with broad material colours at the horizon. This is a visual approximation, not a land-use model. Target-device GPU timing comparisons remain outstanding.
 
+## VR and GitHub Pages
+
+The first WebXR preview renders a stationary scene with per-eye projections and
+headset pose tracking. Choose the scene in desktop settings, then select Enter VR
+in a supported headset browser. Flight and time freeze during immersion, and the
+desktop state resumes on exit. All settings will eventually move to a wrist
+appliance; this milestone has no in-VR controls or floating panel. No eye tracking
+is requested or used. Real Quest 3 and Steam Frame validation is outstanding.
+
+`node tools/package-site.cjs` creates a browser-only dist/ artifact for static HTTPS
+hosting. A manual GitHub Pages workflow is included; no deployment has been run.
+Relative paths support repository subpaths. See [VR testing and publishing](docs/vr-testing.md)
+for setup, current limitations and the headset validation procedure.
+
+Run `node tests/camera.test.cjs`, `node tests/xr.test.cjs` and
+`node tests/site.test.cjs` for stereo math, mocked session lifecycle and Pages
+asset/import checks. These complement the existing performance and preview-server
+checks; they do not establish physical headset performance or comfort.
+
 ## Current limitations
-This is a visual rough-in. Ground has no local relief but uses an analytic Earth-radius sphere intersection for the horizon; crops and towns remain procedural surface detail. Distance fog is disabled; subpixel terrain detail averages into terrain material colours. The sun is a crisp screen-projected disc with cloud occlusion. Cloud geometry follows curved planetary shells to their geometric horizon, with stable radial height evaluation and progressively coarser distant samples. There is no fixed 28 km cutoff. The primary ray budget is 144/192 iterations, with bounded fourfold continuation for shaped clouds; distant detail is an approximation and can show sampling artifacts. The apparatus is represented by peripheral suspension lines. Cumulus uses world-anchored billow volumes, adaptive traversal, and directional self-shadowing; cirrus and stratus retain the simpler noise model. VR, audio, real locations, persistent settings, and detailed flight hardware are not implemented. Actual resource use needs profiling on the target machine; the quality selector controls resolution rather than guaranteeing a GPU budget. No network assets, telemetry, or external dependencies are used.
+This is a visual rough-in. Ground has no local relief but uses an analytic Earth-radius sphere intersection for the horizon; crops and towns remain procedural surface detail. Distance fog is disabled; subpixel terrain detail averages into terrain material colours. The sun is a crisp disc with cloud occlusion; desktop uses screen projection and VR uses a world-anchored angular disc. Cloud geometry follows curved planetary shells to their geometric horizon, with stable radial height evaluation and progressively coarser distant samples. There is no fixed 28 km cutoff. The primary ray budget is 144/192 iterations, with bounded fourfold continuation for shaped clouds; distant detail is an approximation and can show sampling artifacts. The desktop apparatus is represented by peripheral suspension lines, which are omitted in the initial VR preview. Cumulus uses world-anchored billow volumes, adaptive traversal, and directional self-shadowing; cirrus and stratus retain the simpler noise model. VR wrist controls, immersive flight, audio, real locations, persistent settings, and detailed flight hardware are not implemented. Actual resource use needs profiling on the target machine; the quality selector controls resolution rather than guaranteeing a GPU budget. No network assets, telemetry, or external dependencies are used.

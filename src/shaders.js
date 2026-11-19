@@ -6,6 +6,7 @@ in vec2 uv;out vec4 frag;
 uniform vec2 resolution;uniform float travel,altitude,cover,hour,cloudType,moon,celestialScale,eclipse,eclipseProgress;uniform vec2 look;
 uniform int raySteps,neighborRadius;
 uniform float debugTraversal;
+uniform float xrMode;uniform vec4 xrProjection;uniform mat3 xrRotation;uniform vec3 eyeOffset;uniform vec2 viewportOrigin;
 const float EARTH_RADIUS=6371000.;
 const float CELESTIAL_RADIUS=.004625;
 // Shared display radius: the real ~0.53-degree diameter multiplied by UI scale.
@@ -176,11 +177,17 @@ vec3 celestialProjection(vec3 sun){
  float pitch=-look.y;sun.yz=mat2(cos(pitch),sin(pitch),-sin(pitch),cos(pitch))*sun.yz;
  return sun;
 }
+// XR discs use a world-anchored tangent basis, preserving angular size, eclipse
+// alignment and lunar texture through head yaw/roll and asymmetric eye frusta.
+vec3 discCoordinates(vec2 screen,vec3 rd,vec3 direction,float radius){
+ if(xrMode>.5){vec3 right=normalize(cross(vec3(0,1,0),direction));vec3 up=cross(direction,right);float facing=dot(rd,direction);return vec3(vec2(dot(rd,right),dot(rd,up))/max(facing,.001)/radius,facing);}
+ vec3 projected=celestialProjection(direction);return vec3((screen*.68-projected.xy/max(projected.z,.001))/radius,projected.z);
+}
 // Crisp discs with geometric lunar occultation. Corona is visible only in totality.
 // RGB is premultiplied emission, alpha masks the background behind either disc.
-vec4 solarBody(vec2 screen,vec3 sun){
- vec3 projected=celestialProjection(sun);float radius=celestialRadius();
- vec2 q=(screen*.68-projected.xy/max(projected.z,.001))/radius;float aa=.68/resolution.y/radius;
+vec4 solarBody(vec2 screen,vec3 rd,vec3 sun){
+ float radius=celestialRadius();vec3 disc=discCoordinates(screen,rd,sun,radius);vec2 q=disc.xy;
+ float aa=xrMode>.5?max(length(fwidth(q))*.5,.005):.68/resolution.y/radius;
  float r=length(q);float solar=1.-smoothstep(1.-aa,1.+aa,r);
  float lunar=0.;if(eclipse>.5)lunar=1.-smoothstep(eclipseMoonRadius()-aa,eclipseMoonRadius()+aa,length(q-vec2((eclipseProgress-.5)*4.4,0)));
  float totality=eclipse<1.5?smoothstep(.995,1.,eclipseCoverage())*step(.5,eclipse):0.;
@@ -189,7 +196,7 @@ vec4 solarBody(vec2 screen,vec3 sun){
  vec3 colour=sunlight(sun.y)*3.8*solar*(1.-lunar)+vec3(.21,.24,.30)*corona+vec3(.0006)*lunar*totality;
  // In partial phases the unlit Moon outside the photosphere blends into the
  // daylight sky; it must not appear as a floating black ball beside the Sun.
- return vec4(colour,max(solar*(1.-lunar),lunar*totality))*step(.001,projected.z);
+ return vec4(colour,max(solar*(1.-lunar),lunar*totality))*step(.001,disc.z);
 }
 // Fictional celestial orientation: fixed with respect to the sky, never the camera.
 // Time rotates the stars slowly; forward travel does not translate celestial objects.
@@ -241,8 +248,8 @@ vec3 stars(vec3 direction,float solarElevation){
 // Returns RGB and coverage; the entire disc masks background stars, including its dark side.
 vec4 lunarDisc(vec2 screen,vec3 rd,float solarElevation){
  if(moon<.5||solarElevation>.035||eclipse>.5)return vec4(0);
- vec3 projected=celestialProjection(lunarDirection());float facing=projected.z;
- vec2 q=(screen*.68-projected.xy/max(facing,.001))/celestialRadius();
+ vec3 disc=discCoordinates(screen,rd,lunarDirection(),celestialRadius());float facing=disc.z;
+ vec2 q=disc.xy;
  float radius=length(q);float aa=max(length(fwidth(q))*.5,.01);float mask=1.-smoothstep(1.-aa,1.+aa,radius);
  vec3 normal=vec3(q,sqrt(max(0.,1.-dot(q,q))));
  vec3 light=moon<1.5?normalize(vec3(.9,.08,-.55)):moon<2.5?vec3(1,0,0):vec3(0,0,1);
@@ -256,28 +263,30 @@ vec4 lunarDisc(vec2 screen,vec3 rd,float solarElevation){
 // Returns nearest ground distance in metres, or -1 for sky. Rationalized root
 // avoids subtracting two Earth-sized numbers near the ground. Constant GPU cost.
 float groundDistance(vec3 rd,float height){
- float b=(EARTH_RADIUS+height)*rd.y;float c=height*(2.*EARTH_RADIUS+height);
+ vec3 eye=xrMode>.5?eyeOffset:vec3(0);float h=height+eye.y;
+ float b=(EARTH_RADIUS+h)*rd.y+dot(eye.xz,rd.xz);float c=h*(2.*EARTH_RADIUS+h)+dot(eye.xz,eye.xz);
  float discriminant=b*b-c;if(b>=0.||discriminant<0.)return -1.;
  return c/(-b+sqrt(discriminant));
 }
 // Intersect the curved cloud shell in the same local planet frame as the ground.
 // Returns start/end ray distances, or an empty interval. No arbitrary nearby wall.
 vec2 cloudInterval(vec3 rd,float low,float high,float ground){
- float b=(EARTH_RADIUS+altitude)*rd.y;
- float outerC=(altitude-high)*(2.*EARTH_RADIUS+altitude+high);
+ vec3 eye=xrMode>.5?eyeOffset:vec3(0);float h=altitude+eye.y;
+ float b=(EARTH_RADIUS+h)*rd.y+dot(eye.xz,rd.xz);
+ float outerC=(h-high)*(2.*EARTH_RADIUS+h+high)+dot(eye.xz,eye.xz);
  float outerD=b*b-outerC;if(outerD<0.)return vec2(0);
  float first=max(0.,-b-sqrt(outerD));float last=min(ground,-b+sqrt(outerD));
- float innerC=(altitude-low)*(2.*EARTH_RADIUS+altitude+low);float innerD=b*b-innerC;
+ float innerC=(h-low)*(2.*EARTH_RADIUS+h+low)+dot(eye.xz,eye.xz);float innerD=b*b-innerC;
  if(innerD>=0.){float root=sqrt(innerD);if(innerC<0.)first=max(first,-b+root);else if(-b-root>first)last=min(last,-b-root);}
  return vec2(first,max(first,last));
 }
 // Stable radial height: follows planetary curvature without subtracting two
 // Earth-sized floats. Horizontal coordinates stay anchored to procedural terrain.
 vec3 cloudPoint(vec3 ro,vec3 rd,float distance){
- vec3 local=vec3(0,altitude,0)+rd*distance;
+ vec3 local=vec3(ro.x,ro.y,ro.z-travel)+rd*distance;
  float horizontal=dot(local.xz,local.xz);float vertical=EARTH_RADIUS+local.y;
  float height=local.y+horizontal/(sqrt(vertical*vertical+horizontal)+vertical);
- return vec3(local.x,height,local.z+ro.z);
+ return vec3(local.x,height,local.z+travel);
 }
 // Single ground-surface evaluation: section roads, larger crop parcels and bank
 // vegetation share masks/noise. No geometry, extra cloud queries or terrain march.
@@ -329,11 +338,13 @@ void main(){
  vec2 screen=uv;screen.x*=resolution.x/resolution.y;vec3 rd=normalize(vec3(screen*.68,1.));
  float pitch=look.y;rd.yz=mat2(cos(pitch),sin(pitch),-sin(pitch),cos(pitch))*rd.yz;
  float yaw=look.x;rd.xz=mat2(cos(yaw),-sin(yaw),sin(yaw),cos(yaw))*rd.xz;
+ // WebXR supplies each eye's projection and pose; no screen-space mouse camera.
+ if(xrMode>.5)rd=normalize(xrRotation*vec3((uv+xrProjection.zw)/xrProjection.xy,-1.));
  float angle=(hour-6.)/12.*3.14159265;vec3 sun=normalize(vec3(-.65,sin(angle),-cos(angle)*.8));float day=smoothstep(-.18,.12,sun.y);float warm=1.-smoothstep(.12,.65,sun.y);
- vec3 ro=vec3(0,altitude,travel);vec3 col=sky(rd,sun,day,warm);
+ vec3 ro=vec3(0,altitude,travel)+(xrMode>.5?eyeOffset:vec3(0));vec3 col=sky(rd,sun,day,warm);
  col=mix(vec3(.006,.012,.024),col,pow(eclipseDaylight(),.7));
  col+=stars(rd,stellarSkyElevation(sun.y));vec4 lunar=lunarDisc(screen,rd,sun.y);col=mix(col,lunar.rgb,lunar.a);
- vec4 solar=solarBody(screen,sun);col=col*(1.-solar.a)+solar.rgb;
+ vec4 solar=solarBody(screen,rd,sun);col=col*(1.-solar.a)+solar.rgb;
  float hit=groundDistance(rd,altitude);float ground=hit<0.?1.e8:hit;
  if(hit>=0.){vec3 p=ro+rd*ground;col=land(p,rd,sun,day,warm);}
  bool storm=cloudType>2.5;bool shaped=cloudType<.5||storm;
@@ -342,7 +353,7 @@ void main(){
  float trans=1.;vec3 fog=vec3(0);float d=t;
  // Fixed per-pixel quadrature offset breaks coherent marching contours without
  // changing the random seed each frame (which would introduce sparkling).
- float samplePhase=volumeHash(ivec3(ivec2(gl_FragCoord.xy),719))-.5;
+ float samplePhase=volumeHash(ivec3(ivec2(gl_FragCoord.xy-viewportOrigin),719))-.5;
  // Continue transparent shaped-cloud rays beyond the old primary budget.
  // Sample spacing, opacity and volume geometry remain unchanged. Most rays
  // terminate early at opacity or the shell exit; the total remains bounded.
@@ -397,6 +408,6 @@ void main(){
  // green = opaque, blue = completed shell. Never substitutes colour in normal use.
  if(debugTraversal>.5){frag=vec4(d<end&&trans>=.012?vec3(1.,.02,.02):trans<.012?vec3(.02,.4,.02):vec3(.02,.1,.5),1.);return;}
  // The suspension lines remain outside the forward hemisphere.
- float side=abs(look.x);if(side>1.52){float cable=abs(uv.x-(sign(look.x)*.74+uv.y*.12));float line=1.-smoothstep(.001,.004,cable);col=mix(col,vec3(.07,.08,.075),line*smoothstep(1.52,1.9,side));}
- col=col/(col+vec3(.38))*1.16;col=pow(max(col,0.),vec3(.94));float vignette=1.-.1*dot(uv,uv);frag=vec4(col*vignette,1.);
+ float side=abs(look.x);if(xrMode<.5&&side>1.52){float cable=abs(uv.x-(sign(look.x)*.74+uv.y*.12));float line=1.-smoothstep(.001,.004,cable);col=mix(col,vec3(.07,.08,.075),line*smoothstep(1.52,1.9,side));}
+ col=col/(col+vec3(.38))*1.16;col=pow(max(col,0.),vec3(.94));float vignette=xrMode>.5?1.:1.-.1*dot(uv,uv);frag=vec4(col*vignette,1.);
 }`;
