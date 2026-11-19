@@ -1,8 +1,8 @@
 import {vertex, fragment} from './shaders.js';
-import {performancePolicy,powerPolicy,frameSlot,travelDelta,tuneResolution} from './performance.js';
+import {performancePolicy,powerPolicy,frameSlot,advanceHour,travelDelta,tuneResolution} from './performance.js';
 
 // Shared scene defaults. Distances are metres; speed is kilometres per hour.
-const config = Object.freeze({powerMode:1,raySteps:192, neighborRadius:1, altitude:850, speed:65, cover:42, hour:17.6, cloud:0, moon:0, celestialScale:6, eclipse:0, eclipseProgress:50, quality:0});
+const config = Object.freeze({powerMode:1,raySteps:192, neighborRadius:1, altitude:2900, speed:65, cover:42, hour:17.6, cloud:0, moon:0, celestialScale:6, eclipse:0, eclipseProgress:50, quality:0,rendering:-1,timeFrozen:1,timeRate:1});
 
 /** Compile one GPU stage. Returns a shader or throws the compiler diagnostic. */
 function compileShader(gl,type,source){const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(shader));return shader;}
@@ -43,10 +43,14 @@ function drawScene(renderer,state){const {gl,canvas}=renderer;const key=`${state
 /** Wake an idle renderer after a scene change; schedules at most one callback. */
 function invalidate(state){state.wake?.();}
 
+/** Reflect the simulation clock in its controls without firing input events.
+ * Only writes when the displayed minute changes to avoid unnecessary DOM work. */
+function syncClockControls(state){const minutes=Math.round(state.hour*60)%1440;const value=`${String(Math.floor(minutes/60)).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`;const output=document.getElementById('hour-value');if(output.value!==value){output.value=value;const input=document.getElementById('hour');input.value=state.hour;input.setAttribute('aria-valuetext',value);}}
+
 /** Bind accessible controls to explicit scene state. Installs DOM event handlers. */
 function bindControls(canvas,state){
- const formatters={eclipseProgress:v=>`${v}%`,altitude:v=>`${Math.round(v/.3048).toLocaleString()} ft`,speed:v=>`${v} km/h`,cover:v=>`${v}%`,hour:v=>`${String(Math.floor(Math.round(v*60)/60)%24).padStart(2,'0')}:${String(Math.round(v*60)%60).padStart(2,'0')}`};
- for(const key of ['altitude','speed','cover','hour','cloud','moon','celestialScale','eclipse','eclipseProgress','powerMode','quality']){const input=document.getElementById(key);input.value=state[key];const sync=()=>{state[key]=Number(input.value);const output=document.getElementById(`${key}-value`);if(output){output.value=formatters[key](state[key]);input.setAttribute('aria-valuetext',output.value);}invalidate(state);};input.addEventListener('input',sync);sync();}
+ const formatters={timeRate:v=>`${v.toFixed(1)} min/sec`,eclipseProgress:v=>`${v}%`,altitude:v=>`${Math.round(v/.3048).toLocaleString()} ft`,speed:v=>`${v} km/h`,cover:v=>`${v}%`,hour:v=>`${String(Math.floor(Math.round(v*60)/60)%24).padStart(2,'0')}:${String(Math.round(v*60)%60).padStart(2,'0')}`};
+ for(const key of ['altitude','speed','cover','hour','cloud','moon','eclipse','eclipseProgress','rendering','timeFrozen','timeRate']){const input=document.getElementById(key);input.value=state[key];const sync=()=>{state[key]=Number(input.value);if(key==='rendering'){state.powerMode=state.rendering===-1?1:0;state.quality=Math.max(0,state.rendering);}const output=document.getElementById(`${key}-value`);if(output){output.value=formatters[key](state[key]);input.setAttribute('aria-valuetext',output.value);}invalidate(state);};input.addEventListener('input',sync);sync();}
  const recenter=()=>{state.yaw=0;state.pitch=.12;invalidate(state);};
  // Enabling the illustrative eclipse frames the Sun, and selects afternoon only
  // if it is below the horizon. Existing moon phase and fixed-time behaviour persist.
@@ -82,10 +86,12 @@ function startFlight(renderer,state){
   if(previousMode!==state.powerMode){previousMode=state.powerMode;nextDue=null;windowStart=0;frames=0;renderer.gpuMs=null;adaptive={scale:state.powerMode?Math.min(adaptive.scale,powerPolicy.maxScale):adaptive.scale,slowWindows:0,fastWindows:0};}
   const elapsed=last===null?0:now-last;last=now;
   state.travel+=travelDelta(elapsed,state.speed,state.paused,false);
-  const moving=!state.paused&&state.speed>0;
+  state.hour=advanceHour(state.hour,elapsed,state.timeRate,state.timeFrozen,state.paused,false);
+  const moving=!state.paused&&(state.speed>0||!state.timeFrozen);
   const slot=frameSlot(now,nextDue,state.powerMode?powerPolicy.fps:0);nextDue=slot.nextDue;
   if(!slot.due){wake();return;}
   state.autoScale=adaptive.scale;
+  syncClockControls(state);
   let compiled=false;try{compiled=drawScene(renderer,state);}catch(error){const box=document.getElementById('error');box.hidden=false;box.textContent=error.message;console.error(error);return;}
   if(compiled){last=performance.now();ignoreUntil=last+2000;windowStart=0;frames=0;renderer.gpuMs=null;}
   else if(now>=ignoreUntil){

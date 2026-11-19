@@ -32,3 +32,12 @@ test('intentional 30 FPS is not mistaken for overload',async()=>{
  for(let n=0;n<2;n++)state=tuneResolution(state,60,45,1000/30);
  assert.ok(state.scale<.65);
 });
+
+test('simulation clock advances at the selected rate and wraps midnight',async()=>{
+ const {advanceHour}=await import('../src/performance.js');
+ for(const hz of [30,60,144]){let hour=23.5;for(let n=0;n<hz*60;n++)hour=advanceHour(hour,1000/hz,1,false,false,false);assert.ok(Math.abs(hour-.5)<1e-8);}
+ assert.ok(Math.abs(advanceHour(17.6,100,1,true,false,false)-17.6)<1e-10);
+ assert.ok(Math.abs(advanceHour(17.6,100,1,false,true,false)-17.6)<1e-10);
+ assert.ok(Math.abs(advanceHour(17.6,100,1,false,false,true)-17.6)<1e-10);
+ assert.ok(Math.abs(advanceHour(12,10000,120,false,false,false)-12.5)<1e-8);
+});

@@ -28,3 +28,7 @@ export function tuneResolution(previous,frameMs,gpuMs,targetFrameMs=1000/60){
  else if(fastWindows>=5)scale=Math.min(performancePolicy.maxScale,scale*1.04);
  return {scale,slowWindows:slowWindows>=2?0:slowWindows,fastWindows:fastWindows>=5?0:fastWindows};
 }
+
+/** Advance a fictional 24-hour clock; rate is simulated minutes per real second.
+ * Hidden/paused/frozen time is excluded, and stalls share the travel time cap. */
+export function advanceHour(hour,elapsedMs,rate,frozen,paused,hidden){const elapsed=frozen||paused||hidden?0:Math.max(0,Math.min(elapsedMs,performancePolicy.maxDeltaMs));return ((hour+elapsed*rate/60000)%24+24)%24;}

@@ -3,17 +3,17 @@
 <body><canvas id="sky" aria-label="Interactive flight above fictional prairie farmland"></canvas>
 <button id="toggle" aria-expanded="true" aria-controls="panel">Flight settings <span>☷</span></button>
 <aside id="panel" aria-label="Flight settings">
-<label>Altitude <output id="altitude-value"></output><input id="altitude" type="range" min="200" max="6096" step="1" value="850"></label>
+<label>Altitude <output id="altitude-value"></output><input id="altitude" type="range" min="200" max="6096" step="1" value="2900"></label>
 <label>Cruising speed <output id="speed-value"></output><input id="speed" type="range" min="0" max="500" value="65"></label>
 <label>Cloud cover <output id="cover-value"></output><input id="cover" type="range" min="0" max="100" value="42"></label>
 <label>Cloud character<select id="cloud"><option value="0">Fair-weather cumulus</option><option value="1">High, feathered cirrus</option><option value="2">Soft layered stratus</option><option value="3">Storm towers · cumulonimbus</option></select></label>
 <label>Time of day <output id="hour-value"></output><input id="hour" type="range" min="0" max="24" step="0.05" value="17.6"></label>
+<label>Time progression<select id="timeFrozen"><option value="1">Frozen</option><option value="0">Running</option></select></label>
+<label>Time rate <output id="timeRate-value"></output><input id="timeRate" type="range" min="0.1" max="120" step="0.1" value="1"></label>
 <label>Moon<select id="moon"><option value="0">Off</option><option value="1">Crescent</option><option value="2">Half</option><option value="3">Full</option></select></label>
-<label>Sun &amp; moon size<select id="celestialScale"><option value="1">True angular size · 0.53°</option><option value="3">Display scale · 3×</option><option value="6">Display scale · 6×</option></select></label>
 <label>Solar eclipse<select id="eclipse"><option value="0">Off</option><option value="1">Total eclipse</option><option value="2">Annular eclipse</option></select></label>
 <label id="eclipse-controls" hidden>Eclipse progress <output id="eclipseProgress-value"></output><input id="eclipseProgress" type="range" min="0" max="100" value="50"></label>
-<label>Motion &amp; power<select id="powerMode"><option value="1">Power saving · 30 FPS</option><option value="0">Smooth · display refresh</option></select></label>
-<label>Rendering <output id="performance-value" aria-live="off"></output><select id="quality" title="Power saving caps all resolution options to reduce GPU work."><option value="0">Auto resolution</option><option value="0.65">Reduced resolution</option><option value="0.9">Balanced</option><option value="1.25">Fine detail</option></select></label>
+<label>Rendering <output id="performance-value" aria-live="off"></output><select id="rendering"><option value="-1">Power saving · 30 FPS</option><option value="0">Smooth · auto resolution</option><option value="0.65">Smooth · reduced resolution</option><option value="0.9">Smooth · balanced</option><option value="1.25">Smooth · fine detail</option></select></label>
 <div class="actions"><button id="forward">Look forward</button><button id="pause" aria-pressed="false">Pause</button><button id="fullscreen" aria-label="Toggle fullscreen">⛶</button></div>
 </aside>
 <div id="error" role="alert" hidden></div><script type="module" src="src/main.js"></script></body></html>
