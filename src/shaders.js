@@ -1,4 +1,3 @@
-import {traversalGLSL} from './cloud-traversal.js';
 export const vertex = `#version 300 es
 in vec2 position;out vec2 uv;void main(){uv=position;gl_Position=vec4(position,0,1);}`;
 export const fragment = `#version 300 es
@@ -6,7 +5,6 @@ precision highp float;
 in vec2 uv;out vec4 frag;
 uniform vec2 resolution;uniform float travel,altitude,cover,hour,cloudType,moon,celestialScale,eclipse,eclipseProgress;uniform vec2 look;
 uniform int raySteps,neighborRadius;
-${traversalGLSL}
 const float EARTH_RADIUS=6371000.;
 const float CELESTIAL_RADIUS=.004625;
 // Shared display radius: the real ~0.53-degree diameter multiplied by UI scale.
@@ -89,9 +87,11 @@ float cumulusField(vec3 p){
  float top=1920.+fbm(original.xz*.0012)*500.;
  float bank=max(max(bottom-original.y,original.y-top),(weather-mix(-.3,1.1,joining))*2200.);
  if(cover>.55)field=mergeCloud(field,bank,180.);
- // World-anchored erosion: camera distance must never change the cloud field.
+ // Small boundary erosion reveals billows without dissolving the silhouette.
  if(field<180.){
- field+=(volumeNoise(p*.006)-.5)*125.+(volumeNoise(p.yzx*.017+vec3(17,53,29))-.5)*40.+(volumeNoise(p.zxy*.081+vec3(71,11,43))-.5)*7.;
+ field+=(volumeNoise(p*.006)-.5)*125.+(volumeNoise(p.yzx*.017+vec3(17,53,29))-.5)*40.+(volumeNoise(p.zxy*.038+vec3(71,11,43))-.5)*12.;
+ float closeDetail=1.-smoothstep(700.,4500.,length(p-vec3(0,altitude,travel)));
+ if(closeDetail>.001)field+=closeDetail*((volumeNoise(p.yzx*.081+vec3(31,67,19))-.5)*7.+(volumeNoise(p.zxy*.17+vec3(43,13,71))-.5)*2.5);
  }
  return field;
 }
@@ -355,15 +355,12 @@ void main(){
  // Coarser distant samples follow projected scale. Nearby billows retain detail;
  // distant silhouettes use footprint filtering instead of disappearing at 28 km.
  float farStep=max(0.,d-18000.)*.035;
- if(shaped&&distanceToCloud>max(cloudEdgeWidth(p),farStep*.15)){d+=clamp(distanceToCloud*.55,max(35.,farStep*.35),max(storm?1100.:700.,farStep));continue;}
+ if(shaped&&distanceToCloud>max(35.,farStep*.15)){d+=clamp(distanceToCloud*.55,max(35.,farStep*.35),max(storm?1100.:700.,farStep));continue;}
  float stepLength=nominalStep;
  float den=shaped?shapedDensity(p,distanceToCloud):density(p);
- // Transparent fringes need not consume the same fine budget as opaque billows.
- // Keep opacity integration proportional to the distance actually advanced.
- if(shaped)stepLength=cloudFringeStep(stepLength,den,d);
  if(den>.001){
  float lightScale=storm?2.5:1.;
- float probe=32.*lightScale;
+ float probe=mix(18.,80.,smoothstep(250.,4500.,d))*lightScale;
 #if POWER_SAVING
  vec3 probePosition=p+sun*probe;
  float probeField=shaped?cloudField(probePosition):0.;
