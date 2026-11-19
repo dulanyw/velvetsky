@@ -1,4 +1,4 @@
-# Stationary WebXR preview
+# Velvet Sky: stationary WebXR preview
 
 This is the first VR milestone, not the completed wrist-control experience.
 Physical headset validation and performance profiling are still required.
@@ -30,11 +30,11 @@ adaptive VR performance policy and Steam Frame browser validation come later.
 1. Put this repository on GitHub, including the manual Pages workflow on its
    default branch. Local source changes do not publish anything by themselves.
 2. In repository Settings > Pages, select GitHub Actions as the publishing source.
-3. Run Actions > Publish browser preview > Run workflow.
+3. Run Actions > Publish Velvet Sky > Run workflow.
 4. The workflow runs unit/package checks and packages only index.html, src/ and
    .nojekyll into dist/. It uploads that artifact and deploys it to Pages.
 5. Use the HTTPS URL reported by the deployment, including the repository subpath
-   and trailing slash. Example: https://USERNAME.github.io/REPOSITORY/.
+   and trailing slash. Example: https://USERNAME.github.io/velvet-sky/.
 
 All paths are relative. No packages, API keys, application backend, service worker
 or external assets are required. Node runs during local development and packaging,

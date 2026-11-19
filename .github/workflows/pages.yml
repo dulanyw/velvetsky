@@ -1,4 +1,4 @@
-name: Publish browser preview
+name: Publish Velvet Sky
 
 # Publishing is manual; local work and ordinary pushes do not deploy the site.
 on:

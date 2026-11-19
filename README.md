@@ -1,6 +1,6 @@
-# Prairie Flight
+# Velvet Sky
 
-A quiet, browser-only flight viewpiece, designed for a second screen.
+A peaceful, browser-only cloudscape for drifting through the sky, designed for a second screen and immersive VR.
 
 ## Agreed first prototype
 - Lightweight HTML, vanilla JavaScript, CSS, and procedural graphics; no external dependencies unless justified.
