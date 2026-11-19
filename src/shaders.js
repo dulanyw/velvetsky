@@ -278,22 +278,45 @@ vec3 cloudPoint(vec3 ro,vec3 rd,float distance){
  float height=local.y+horizontal/(sqrt(vertical*vertical+horizontal)+vertical);
  return vec3(local.x,height,local.z+ro.z);
 }
+// Single ground-surface evaluation: section roads, larger crop parcels and bank
+// vegetation share masks/noise. No geometry, extra cloud queries or terrain march.
+// Footprint filtering removes narrow markings before they become subpixel stripes.
 vec3 land(vec3 p,vec3 rd,vec3 sun,float day,float warm){
- vec2 w=p.xz;float footprint=length(fwidth(w));vec2 cell=floor(w/680.);vec2 f=fract(w/680.);float seed=hash(cell);float product=hash(cell+45.);
- vec3 a=vec3(.24,.29,.105),b=vec3(.49,.40,.18);vec3 c=mix(a,b,product);
- c=mix(c,vec3(.17,.24,.12),step(.76,product));c*=.83+.24*noise(w*.025);
- float rows=.5+.5*sin((seed>.5?w.x:w.y)*.43);c*=.94+.06*rows;
- float edge=min(min(f.x,1.-f.x),min(f.y,1.-f.y));c=mix(vec3(.19,.225,.12),c,smoothstep(.002,.009,edge));
- float road=1.-smoothstep(.003,.007,edge);c=mix(c,vec3(.44,.41,.31),road*.9);
- float lake=fbm(w*.00032+vec2(31,81));float water=smoothstep(.645,.665,lake);c=mix(c,vec3(.17,.28,.29),water);
+ vec2 w=p.xz;float footprint=length(fwidth(w));float detail=1.-smoothstep(35.,160.,footprint);
+ vec2 section=floor(w/1600.);vec2 local=fract(w/1600.);float sectionSeed=hash(section+13.);
+ // Some sections remain whole; others split into two or four agricultural parcels.
+ vec2 divisions=sectionSeed<.30?vec2(1):sectionSeed<.78?vec2(2,1):vec2(2);
+ if(hash(section+37.)>.5)divisions=divisions.yx;
+ vec2 parcel=floor(local*divisions);vec2 fieldLocal=fract(local*divisions);
+ float product=hash(section*7.+parcel+45.);float region=hash(floor(w/9600.)+83.);
+ // Muted late-summer crops: corn, soy, pasture, stubble and occasional bare soil.
+ vec3 c=product<.32?vec3(.29,.34,.15):product<.63?vec3(.34,.37,.19):product<.80?vec3(.38,.36,.21):product<.94?vec3(.46,.40,.27):vec3(.32,.28,.22);
+ c*=.94+region*.10;
+ float broad=noise(w*.0007+vec2(71,29));c*=.94+broad*.12;
+ vec2 parcelEdge=min(fieldLocal,1.-fieldLocal)*1600./divisions;
+ float edge=min(parcelEdge.x,parcelEdge.y);
+ float boundary=(1.-smoothstep(2.,max(5.,footprint),edge))*detail;
+ c=mix(c,vec3(.25,.29,.15),boundary*.45);
+ vec2 roadEdge=min(local,1.-local)*1600.;float roadDistance=min(roadEdge.x,roadEdge.y);
+ float road=(1.-smoothstep(3.,3.+max(2.,footprint*.7),roadDistance))*detail;
+ // Keep the existing broad lake field, with a narrow irregular vegetated bank.
+ float lake=fbm(w*.00032+vec2(31,81));float lakeAA=max(.003,fwidth(lake));
+ float water=smoothstep(.655-lakeAA,.655+lakeAA,lake);
+ float bank=smoothstep(.60,.645,lake)*(1.-water);
+ float canopy=noise(w*.003+vec2(17,53));
+ float woods=smoothstep(.60,.72,broad)*smoothstep(.34,.62,canopy);
+ float trees=max(woods,bank*(.65+.35*canopy));
+ c=mix(c,mix(vec3(.13,.20,.12),vec3(.20,.26,.14),canopy),trees);
+ c=mix(c,vec3(.40,.39,.32),road*.8*(1.-bank));
+ c=mix(c,vec3(.14,.23,.25),water);
  float sparkle=pow(max(dot(reflect(rd,vec3(0,1,0)),sun),0.),80.);c+=water*sparkle*vec3(1.,.65,.3)*.7;
- vec2 townCell=floor(w/2600.);vec2 local=fract(w/2600.)-.5;float town=step(.82,hash(townCell+90.))*(1.-smoothstep(.12,.22,length(local)))*(1.-water);
- vec2 block=fract(w/55.);float roof=step(.22,block.x)*step(block.x,.8)*step(.2,block.y)*step(block.y,.74);vec3 roofs=mix(vec3(.25,.26,.23),vec3(.55,.49,.39),hash(floor(w/55.)));
- c=mix(c,mix(vec3(.3,.32,.27),roofs,roof),town);
- float trees=step(.72,noise(w*.015))*smoothstep(.028,.009,edge);c=mix(c,vec3(.10,.17,.085),trees*(1.-water));
- // Average subpixel fields into their material colour, rather than fading to fog.
- // This suppresses far-horizon shimmer while keeping terrain distinct from sky.
- c=mix(c,mix(vec3(.32,.33,.14),vec3(.17,.28,.29),water),smoothstep(60.,650.,footprint));
+ // Existing settlements retain their simple surface representation; filter roofs.
+ vec2 townCell=floor(w/2600.);vec2 townLocal=fract(w/2600.)-.5;float town=step(.82,hash(townCell+90.))*(1.-smoothstep(.12,.22,length(townLocal)))*(1.-water)*(1.-bank);
+ vec2 block=fract(w/55.);float roof=step(.22,block.x)*step(block.x,.8)*step(.2,block.y)*step(block.y,.74);vec3 roofs=mix(vec3(.25,.26,.23),vec3(.48,.45,.38),hash(floor(w/55.)));
+ vec3 settlement=mix(vec3(.32,.33,.29),mix(vec3(.3,.32,.27),roofs,roof),1.-smoothstep(8.,35.,footprint));
+ c=mix(c,settlement,town);
+ vec3 distant=mix(vec3(.34,.35,.20),vec3(.17,.23,.13),trees*.65);
+ c=mix(c,mix(distant,vec3(.14,.23,.25),water),smoothstep(160.,900.,footprint));
  c*=vec3(.045,.065,.12)+sunlight(sun.y)*smoothstep(-.035,.16,sun.y)*.85;
  float moonlight=lunarStrength()*(1.-smoothstep(-.18,-.02,sun.y))*max(lunarDirection().y,0.);
  c+=vec3(.014,.020,.033)*moonlight;
