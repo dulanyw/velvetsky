@@ -5,6 +5,7 @@ precision highp float;
 in vec2 uv;out vec4 frag;
 uniform vec2 resolution;uniform float travel,altitude,cover,hour,cloudType,moon,celestialScale,eclipse,eclipseProgress;uniform vec2 look;
 uniform int raySteps,neighborRadius;
+uniform float debugTraversal;
 const float EARTH_RADIUS=6371000.;
 const float CELESTIAL_RADIUS=.004625;
 // Shared display radius: the real ~0.53-degree diameter multiplied by UI scale.
@@ -342,7 +343,11 @@ void main(){
  // Fixed per-pixel quadrature offset breaks coherent marching contours without
  // changing the random seed each frame (which would introduce sparkling).
  float samplePhase=volumeHash(ivec3(ivec2(gl_FragCoord.xy),719))-.5;
- for(int i=0;i<raySteps;i++){
+ // Continue transparent shaped-cloud rays beyond the old primary budget.
+ // Sample spacing, opacity and volume geometry remain unchanged. Most rays
+ // terminate early at opacity or the shell exit; the total remains bounded.
+ int traversalLimit=raySteps*(shaped?4:1);
+ for(int i=0;i<traversalLimit;i++){
  if(d>=end||trans<.012)break;
  float nearStep=shaped?mix(storm?8.:4.,storm?60.:32.,smoothstep(200.,4500.,d)):85.;
 #if POWER_SAVING
@@ -388,6 +393,9 @@ void main(){
  fog+=trans*alpha*shade;trans*=1.-alpha;}
  d+=stepLength;}
  col=col*trans+fog;
+ // Optional URL diagnostic: red = budget exhausted while still transmissive;
+ // green = opaque, blue = completed shell. Never substitutes colour in normal use.
+ if(debugTraversal>.5){frag=vec4(d<end&&trans>=.012?vec3(1.,.02,.02):trans<.012?vec3(.02,.4,.02):vec3(.02,.1,.5),1.);return;}
  // The suspension lines remain outside the forward hemisphere.
  float side=abs(look.x);if(side>1.52){float cable=abs(uv.x-(sign(look.x)*.74+uv.y*.12));float line=1.-smoothstep(.001,.004,cable);col=mix(col,vec3(.07,.08,.075),line*smoothstep(1.52,1.9,side));}
  col=col/(col+vec3(.38))*1.16;col=pow(max(col,0.),vec3(.94));float vignette=1.-.1*dot(uv,uv);frag=vec4(col*vignette,1.);
