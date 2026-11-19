@@ -89,11 +89,9 @@ float cumulusField(vec3 p){
  float top=1920.+fbm(original.xz*.0012)*500.;
  float bank=max(max(bottom-original.y,original.y-top),(weather-mix(-.3,1.1,joining))*2200.);
  if(cover>.55)field=mergeCloud(field,bank,180.);
- // Small boundary erosion reveals billows without dissolving the silhouette.
+ // World-anchored erosion: camera distance must never change the cloud field.
  if(field<180.){
- field+=(volumeNoise(p*.006)-.5)*125.+(volumeNoise(p.yzx*.017+vec3(17,53,29))-.5)*40.+(volumeNoise(p.zxy*.038+vec3(71,11,43))-.5)*12.;
- float closeDetail=1.-smoothstep(700.,4500.,length(p-vec3(0,altitude,travel)));
- if(closeDetail>.001)field+=closeDetail*((volumeNoise(p.yzx*.081+vec3(31,67,19))-.5)*7.+(volumeNoise(p.zxy*.17+vec3(43,13,71))-.5)*2.5);
+ field+=(volumeNoise(p*.006)-.5)*125.+(volumeNoise(p.yzx*.017+vec3(17,53,29))-.5)*40.+(volumeNoise(p.zxy*.081+vec3(71,11,43))-.5)*7.;
  }
  return field;
 }
@@ -362,10 +360,10 @@ void main(){
  float den=shaped?shapedDensity(p,distanceToCloud):density(p);
  // Transparent fringes need not consume the same fine budget as opaque billows.
  // Keep opacity integration proportional to the distance actually advanced.
- if(shaped)stepLength=cloudFringeStep(stepLength,den);
+ if(shaped)stepLength=cloudFringeStep(stepLength,den,d);
  if(den>.001){
  float lightScale=storm?2.5:1.;
- float probe=mix(18.,80.,smoothstep(250.,4500.,d))*lightScale;
+ float probe=32.*lightScale;
 #if POWER_SAVING
  vec3 probePosition=p+sun*probe;
  float probeField=shaped?cloudField(probePosition):0.;
