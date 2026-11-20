@@ -1,10 +1,12 @@
 # Velvet Sky
 
-A peaceful, browser-based cloudscape for drifting above fictional farmland. The goal is a beautiful, relaxing view for a second screen, with an experimental stationary VR preview.
-
-Run locally with `node server.cjs`, then open http://127.0.0.1:8467. No package installation is needed.
+A peaceful, browser-based cloudscape for drifting above a fictional world. The goal is a beautiful, relaxing experience for a second screen, with an experimental VR preview.
 
 ## Controls
+
+In a browser: 
+
+Click and drag on the view to look around.
 
 Open the sliders icon to change your scene.
 
@@ -18,9 +20,7 @@ Open the sliders icon to change your scene.
 | Moon | Turn the Moon off or choose its phase. |
 | Solar eclipse / progress | Enable a total or annular eclipse and adjust its alignment. |
 | Rendering | Choose power-saving 30 FPS or smoother modes with different resolution settings. |
-| Drag the view | Look around without changing flight direction. |
 | Look forward / double-click / Home | Recenter the view. |
-| Sliders icon / H | Toggle settings; H hides or restores the interface. |
 | Pause | Freeze flight and time; look-around and settings remain usable. |
 | Fullscreen | Enter or leave fullscreen. |
 | Enter VR | Open a stationary headset view with flight and time frozen. Choose settings beforehand; exit through the headset menu. |
